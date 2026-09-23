@@ -157,6 +157,7 @@ function StatusPageContent() {
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
         tableId={table.id}
+        tableNumber={table.table_number}
         orderId={latestOrderId}
         totalAmount={grandTotal}
       />

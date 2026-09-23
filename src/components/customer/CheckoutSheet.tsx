@@ -22,6 +22,7 @@ interface CheckoutSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   tableId: string;
+  tableNumber: number;
   orderId: string | null;
   totalAmount: number;
 }
@@ -36,6 +37,7 @@ export function CheckoutSheet({
   open,
   onOpenChange,
   tableId,
+  tableNumber,
   orderId,
   totalAmount,
 }: CheckoutSheetProps) {
@@ -53,7 +55,7 @@ export function CheckoutSheet({
     setSubmitting(true);
     try {
       await setOrderPaymentMethod(orderId, method);
-      await createStaffCall(tableId, "checkout");
+      await createStaffCall(tableId, "checkout", tableNumber);
       setRequested(true);
       toast.success("Đã gửi yêu cầu thanh toán, nhân viên sẽ ra hỗ trợ ngay.");
     } catch (error) {

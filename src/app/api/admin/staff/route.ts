@@ -79,8 +79,16 @@ export async function POST(request: Request): Promise<NextResponse> {
   // định 'staff' và full_name null NGAY TRONG CÙNG transaction insert user —
   // cập nhật lại đúng role/tên đã chọn ngay sau đó bằng client service role
   // (bỏ qua RLS, an toàn vì đã xác thực requireAdmin() ở trên).
-  const { error: updateError } = await admin
-    .from("profiles")
+  //
+  // Ép kiểu `as any` ngay sau .from("profiles") — Database type viết tay
+  // khiến TypeScript suy luận sai tham số của .update() trên client tạo
+  // bằng createClient thuần (lib/supabase/admin.ts), sụp thành kiểu `never`
+  // dù dữ liệu truyền vào đúng shape ProfilesRow["Update"]. Đã thử thêm
+  // `Relationships` vào TableDefinition (database.types.ts) nhưng không đủ
+  // để sửa triệt để — ép kiểu trực tiếp ở đây là cách chắc chắn nhất, không
+  // ảnh hưởng runtime (Supabase chỉ đọc object JS bình thường, không quan
+  // tâm kiểu TypeScript lúc thực thi).
+  const { error: updateError } = await (admin.from("profiles") as any)
     .update({ role: body.role, full_name: fullName || null })
     .eq("id", created.user.id);
 

@@ -21,7 +21,7 @@ import {
   type SmartInsight,
   type WeekdayRevenuePoint,
 } from "@/types";
-import type { TableStatus } from "@/types/database.types";
+import type { TablesRow, TableStatus } from "@/types/database.types";
 
 const EMPTY_TABLE_STATUS_COUNTS: Record<TableStatus, number> = {
   empty: 0,
@@ -62,7 +62,14 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     .reduce((sum, o) => sum + o.total_amount, 0);
 
   const tableStatusCounts: Record<TableStatus, number> = { ...EMPTY_TABLE_STATUS_COUNTS };
-  for (const table of tablesRes.data ?? []) {
+  // Ép kiểu tường minh — Database type viết tay không suy luận chính xác kiểu
+  // hẹp khi .select() chỉ định 1 cột duy nhất dạng chuỗi ("status"), khiến
+  // `table` sụp thành `any` (xem ghi chú tương tự ở order.service.ts và
+  // vatInvoice.service.ts). `any` không được dùng làm index cho
+  // `Record<TableStatus, number>` (kiểu có key hữu hạn, không phải index
+  // signature) nên bắt buộc phải ép kiểu tường minh ở đây.
+  const tableRows = (tablesRes.data ?? []) as unknown as Pick<TablesRow, "status">[];
+  for (const table of tableRows) {
     tableStatusCounts[table.status] += 1;
   }
 
@@ -236,8 +243,13 @@ async function computeRetention(
     throw new AppError("Không thể tính tỷ lệ khách quay lại.", error);
   }
 
+  // Ép kiểu qua `unknown` trước (thay vì ép thẳng) — theo đúng quy ước đã
+  // dùng ở mọi nơi khác trong file này, tránh lỗi "Conversion... may be a
+  // mistake" nếu Database type viết tay suy luận ra 1 kiểu cụ thể (dù sai)
+  // thay vì `any` cho .select() cột hẹp này.
+  const retentionRows = (data ?? []) as unknown as { customer_id: string | null; created_at: string }[];
   const earliestByCustomer = new Map<string, number>();
-  for (const row of (data ?? []) as { customer_id: string | null; created_at: string }[]) {
+  for (const row of retentionRows) {
     if (!row.customer_id) continue;
     const t = new Date(row.created_at).getTime();
     const existing = earliestByCustomer.get(row.customer_id);

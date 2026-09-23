@@ -1,5 +1,4 @@
 import { createBrowserClient } from "@supabase/ssr";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.types";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,8 +22,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
  * được localStorage của trình duyệt) đọc được phiên đăng nhập và chặn truy
  * cập /staff, /admin khi chưa đăng nhập đúng vai trò. Với khách quét QR
  * (không bao giờ đăng nhập) hành vi hoàn toàn không đổi.
+ *
+ * KHÔNG khai báo tường minh kiểu trả về (vd `: SupabaseClient<Database>`) —
+ * để TypeScript tự suy luận thẳng từ `createBrowserClient<Database>(...)`.
+ * Dự án không khoá phiên bản `@supabase/supabase-js`/`@supabase/ssr` (không
+ * có package-lock.json, xem README/hướng dẫn deploy), nên mỗi lần Vercel
+ * chạy `npm install` có thể kéo về một bản vá mới hơn với HÌNH DẠNG generic
+ * hơi khác cho `SupabaseClient<...>` (đã từng gãy build vì lý do này — annotate
+ * tường minh theo hình dạng cũ sẽ không còn khớp). Suy luận trực tiếp từ hàm
+ * khởi tạo luôn khớp 100% với phiên bản thư viện thực tế được cài, bất kể nó
+ * thay đổi hình dạng generic nội bộ ra sao.
  */
-export const supabase: SupabaseClient<Database> = createBrowserClient<Database>(
+export const supabase = createBrowserClient<Database>(
   supabaseUrl,
   supabaseAnonKey,
   {

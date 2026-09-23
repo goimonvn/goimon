@@ -13,7 +13,7 @@ export function CategoryTabs({ categories, onSelectItem }: CategoryTabsProps) {
   if (categories.length === 0) return null;
 
   return (
-    <Tabs defaultValue={categories[0].id} className="w-full">
+    <Tabs defaultValue={categories[0]?.id ?? ""} className="w-full">
       <TabsList>
         {categories.map((category) => (
           <TabsTrigger key={category.id} value={category.id}>

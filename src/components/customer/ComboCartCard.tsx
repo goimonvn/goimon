@@ -18,7 +18,12 @@ interface ComboCartCardProps {
  * KHÔNG cho chỉnh số lượng từng thành phần — chỉ xoá nguyên combo.
  */
 export function ComboCartCard({ groupLines, onRemove }: ComboCartCardProps) {
+  // `groupLines[0]` gõ ra `CartLine | undefined` vì tsconfig bật
+  // `noUncheckedIndexedAccess` — dù JSDoc trên prop đảm bảo mảng này luôn có
+  // ít nhất 1 phần tử (caller lọc theo comboGroupId trước khi truyền vào),
+  // TypeScript không suy luận được điều đó nên vẫn cần guard tường minh.
   const first = groupLines[0];
+  if (!first) return null;
   const comboGroupId = first.comboGroupId;
   if (!comboGroupId) return null;
 

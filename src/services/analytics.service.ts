@@ -267,7 +267,16 @@ function buildWeekdayTrend(ordersInRange: OrderAggRow[]): WeekdayRevenuePoint[] 
     if (order.payment_status !== "paid") continue;
     totals[mondayFirstWeekdayIndex(new Date(order.created_at))] += order.total_amount;
   }
-  return totals.map((revenue, weekdayIndex) => ({ weekdayIndex, label: WEEKDAY_LABELS[weekdayIndex], revenue }));
+  // `WEEKDAY_LABELS[weekdayIndex]` gõ ra `string | undefined` vì
+  // `noUncheckedIndexedAccess` (weekdayIndex là `number` thường, không phải
+  // literal 0-6) — trên thực tế `totals` luôn có đúng 7 phần tử khớp với 7
+  // nhãn nên không bao giờ undefined, nhưng vẫn cần `?? ""` để khớp kiểu
+  // `label: string` của WeekdayRevenuePoint.
+  return totals.map((revenue, weekdayIndex) => ({
+    weekdayIndex,
+    label: WEEKDAY_LABELS[weekdayIndex] ?? "",
+    revenue,
+  }));
 }
 
 /** Heatmap khung giờ vàng — đếm số lượt đặt món theo (thứ, giờ), không lọc theo trạng thái thanh toán vì đo LƯU LƯỢNG khách, không phải doanh thu. */
@@ -436,13 +445,19 @@ export async function getSmartInsights(): Promise<SmartInsight[]> {
       if (existing) existing.quantity += row.quantity;
       else byItem.set(row.menu_item_id, { name, quantity: row.quantity });
     }
+    // `.sort(...)[0]` gõ ra `T | undefined` vì `noUncheckedIndexedAccess` —
+    // trên thực tế luôn có phần tử vì điều kiện `itemRows.length > 0` ở trên
+    // đảm bảo `byItem` không rỗng, nhưng TypeScript không suy luận được qua
+    // chuỗi Map -> Array.from -> sort, nên vẫn cần guard tường minh.
     const top = Array.from(byItem.values()).sort((a, b) => b.quantity - a.quantity)[0];
-    const share = Math.round((top.quantity / totalQuantity) * 1000) / 10;
-    insights.push({
-      id: "top-item",
-      text: `Món bán chạy nhất tuần này là "${top.name}", chiếm ${share}% tổng số lượt gọi món.`,
-      tone: "neutral",
-    });
+    if (top) {
+      const share = Math.round((top.quantity / totalQuantity) * 1000) / 10;
+      insights.push({
+        id: "top-item",
+        text: `Món bán chạy nhất tuần này là "${top.name}", chiếm ${share}% tổng số lượt gọi món.`,
+        tone: "neutral",
+      });
+    }
   }
 
   // 3. Khung giờ cao điểm tuần này (cửa sổ 2 giờ liên tiếp nhiều lượt đặt nhất).

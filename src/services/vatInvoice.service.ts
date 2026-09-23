@@ -37,7 +37,12 @@ export async function getVatInvoiceForOrder(
     .maybeSingle();
 
   if (error || !data) return null;
-  return { companyName: data.company_name, taxCode: data.tax_code };
+
+  // Ép kiểu tường minh — Database type viết tay không suy luận chính xác
+  // kiểu hẹp khi .select() chỉ định danh sách cột cụ thể kèm .maybeSingle()
+  // (xem ghi chú tương tự ở order.service.ts#fetchActiveOrdersWithItems).
+  const row = data as unknown as Pick<VatInvoicesRow, "company_name" | "tax_code">;
+  return { companyName: row.company_name, taxCode: row.tax_code };
 }
 
 /** Danh sách toàn bộ hoá đơn VAT đã xuất, kèm tổng tiền + số bàn của đơn gốc — dùng cho trang chủ quán. */

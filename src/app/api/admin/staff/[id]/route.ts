@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserId, requireAdmin } from "@/lib/supabase/server";
+import type { ProfilesRow } from "@/types/database.types";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,7 @@ export async function DELETE(
 
   const admin = createSupabaseAdminClient();
 
-  const { data: target, error: fetchError } = await admin
+  const { data: rawTarget, error: fetchError } = await admin
     .from("profiles")
     .select("role")
     .eq("id", targetId)
@@ -40,6 +41,11 @@ export async function DELETE(
   if (fetchError) {
     return NextResponse.json({ error: "Không thể kiểm tra tài khoản trước khi xoá." }, { status: 500 });
   }
+
+  // Ép kiểu tường minh — Database type viết tay không suy luận chính xác
+  // kiểu hẹp khi .select() chỉ định danh sách cột cụ thể kèm .maybeSingle()
+  // (xem ghi chú tương tự ở order.service.ts#fetchActiveOrdersWithItems).
+  const target = rawTarget as unknown as Pick<ProfilesRow, "role"> | null;
   if (!target) {
     return NextResponse.json({ error: "Tài khoản không tồn tại." }, { status: 404 });
   }

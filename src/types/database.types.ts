@@ -248,10 +248,19 @@ export interface ComboItemsRow {
   quantity: number;
 }
 
-type TableDefinition<Row, Insert, Update> = {
+// `Relationships` bắt buộc phải có mặt (dù rỗng) để khớp đúng ràng buộc
+// generic `GenericTable` của @supabase/supabase-js — thiếu trường này khiến
+// TypeScript không suy luận được kiểu tham số cho .select()/.update() (sụp
+// thành `never`), lộ rõ nhất khi dùng client tạo bằng `createClient` thuần
+// (xem lib/supabase/admin.ts) thay vì qua @supabase/ssr. Dự án này không
+// dùng kiểu embed tự động qua `Relationships` (mọi select có join đều tự ép
+// kiểu tường minh bằng `as unknown as T`, xem order.service.ts), nên để
+// rỗng là đủ — không cần khai báo FK thật cho từng bảng.
+type TableDefinition<Row, Insert, Update, Relationships = []> = {
   Row: Row;
   Insert: Insert;
   Update: Update;
+  Relationships: Relationships;
 };
 
 export interface Database {

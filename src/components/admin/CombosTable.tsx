@@ -30,7 +30,7 @@ export function CombosTable({ combos, loading, onToggleActive, onEdit, onDelete 
   if (combos.length === 0) {
     return (
       <p className="py-10 text-center text-sm text-muted-foreground">
-        Chưa có combo nào. Bấm "Thêm combo" để bắt đầu.
+        Chưa có combo nào. Bấm &quot;Thêm combo&quot; để bắt đầu.
       </p>
     );
   }

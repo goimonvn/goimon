@@ -69,7 +69,7 @@ export default function AdminCombosPage() {
         <div>
           <h1 className="text-xl font-bold">Combo & Set món ưu đãi</h1>
           <p className="text-sm text-muted-foreground">
-            Gộp nhiều món thành 1 gói giá ưu đãi, hiển thị ở mục "Combo Tiết Kiệm" trên thực đơn của khách.
+            Gộp nhiều món thành 1 gói giá ưu đãi, hiển thị ở mục &quot;Combo Tiết Kiệm&quot; trên thực đơn của khách.
           </p>
         </div>
         <Button onClick={handleAddNew}>

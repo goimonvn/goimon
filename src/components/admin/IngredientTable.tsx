@@ -29,7 +29,7 @@ export function IngredientTable({ ingredients, loading, onRestock, onEdit, onDel
   if (ingredients.length === 0) {
     return (
       <p className="py-10 text-center text-sm text-muted-foreground">
-        Chưa có nguyên liệu nào. Bấm "Thêm nguyên liệu" để bắt đầu quản lý kho.
+        Chưa có nguyên liệu nào. Bấm &quot;Thêm nguyên liệu&quot; để bắt đầu quản lý kho.
       </p>
     );
   }

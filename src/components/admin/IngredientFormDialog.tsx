@@ -119,7 +119,7 @@ export function IngredientFormDialog({ open, ingredient, onOpenChange, onSaved }
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Khi tồn kho thấp hơn ngưỡng này, nguyên liệu sẽ hiện cảnh báo "Sắp hết" trên Dashboard.
+            Khi tồn kho thấp hơn ngưỡng này, nguyên liệu sẽ hiện cảnh báo &quot;Sắp hết&quot; trên Dashboard.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>

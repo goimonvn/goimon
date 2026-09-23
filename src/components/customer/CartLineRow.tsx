@@ -21,7 +21,7 @@ export function CartLineRow({ line, onChangeQuantity, onRemove }: CartLineRowPro
             {line.selectedOptions.map((o) => o.option_name).join(", ")}
           </p>
         )}
-        {line.note && <p className="mt-0.5 text-xs italic text-muted-foreground">"{line.note}"</p>}
+        {line.note && <p className="mt-0.5 text-xs italic text-muted-foreground">&quot;{line.note}&quot;</p>}
         <p className="mt-1 text-sm font-semibold text-primary">{formatCurrency(line.lineTotal)}</p>
       </div>
 

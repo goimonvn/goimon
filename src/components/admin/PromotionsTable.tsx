@@ -36,7 +36,7 @@ export function PromotionsTable({ promotions, loading, onToggleActive, onEdit, o
   if (promotions.length === 0) {
     return (
       <p className="py-10 text-center text-sm text-muted-foreground">
-        Chưa có khuyến mãi nào. Bấm "Thêm khuyến mãi" để bắt đầu.
+        Chưa có khuyến mãi nào. Bấm &quot;Thêm khuyến mãi&quot; để bắt đầu.
       </p>
     );
   }

@@ -8,6 +8,7 @@ import {
 } from "@/types";
 import type { IngredientsRow, RecipeItemsRow, ShopSettingsRow } from "@/types/database.types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { notifyLowStockTelegram } from "./telegram.service";
 
 export async function getAllIngredients(): Promise<IngredientsRow[]> {
   const { data, error } = await supabase.from("ingredients").select("*").order("name", { ascending: true });
@@ -185,7 +186,7 @@ export async function checkAndDeductInventoryForOrderItem(
     supabase.from("shop_settings").select("block_order_when_insufficient_stock").eq("id", true).maybeSingle(),
     supabase
       .from("recipe_items")
-      .select("quantity_required, ingredient:ingredients(name, stock_quantity)")
+      .select("quantity_required, ingredient:ingredients(id, name, unit, stock_quantity, min_threshold)")
       .eq("menu_item_id", menuItemId),
   ]);
 
@@ -195,7 +196,7 @@ export async function checkAndDeductInventoryForOrderItem(
 
   type RawRow = {
     quantity_required: number;
-    ingredient: { name: string; stock_quantity: number } | null;
+    ingredient: { id: string; name: string; unit: string; stock_quantity: number; min_threshold: number } | null;
   };
   const rows = (recipeRows ?? []) as unknown as RawRow[];
 
@@ -206,7 +207,7 @@ export async function checkAndDeductInventoryForOrderItem(
 
   const insufficientIngredients = rows
     .filter(
-      (row): row is RawRow & { ingredient: { name: string; stock_quantity: number } } =>
+      (row): row is RawRow & { ingredient: NonNullable<RawRow["ingredient"]> } =>
         row.ingredient !== null && row.ingredient.stock_quantity < row.quantity_required * quantityOrdered
     )
     .map((row) => row.ingredient.name);
@@ -226,7 +227,42 @@ export async function checkAndDeductInventoryForOrderItem(
     throw new AppError("Không thể trừ kho nguyên liệu.", deductError);
   }
 
+  notifyLowStockIfJustCrossedThreshold(rows, quantityOrdered);
+
   return { insufficientIngredients };
+}
+
+/**
+ * Báo Telegram (Module 12) cho từng nguyên liệu VỪA tụt xuống mức sắp/đã hết
+ * NGAY BỞI LẦN TRỪ KHO NÀY — tính TOÁN CỤC BỘ từ `stock_quantity` đã đọc TRƯỚC
+ * lúc trừ (không query lại): `newStock = oldStock - quantity_required *
+ * quantityOrdered` khớp chính xác phép trừ nguyên tử mà RPC vừa chạy ở trên
+ * (cùng công thức), tránh thêm 1 round-trip chỉ để đọc lại. Đây là hành động
+ * PHỤ (cảnh báo), không phải trừ kho thật — trừ kho thật vẫn luôn đúng vì chạy
+ * atomic ở Postgres (xem JSDoc hàm gọi); race hiếm giữa 2 đơn cùng món có thể
+ * khiến `oldStock` đọc trước hơi lệch, chấp nhận được cho một cảnh báo.
+ *
+ * CHỈ báo khi VỪA CHUYỂN từ TRÊN ngưỡng xuống DƯỚI/BẰNG ngưỡng (oldStock >
+ * min_threshold >= newStock) — KHÔNG báo lại ở mọi đơn tiếp theo khi đã sẵn
+ * dưới ngưỡng, để nhóm Telegram của quán không bị spam liên tục mỗi lần có
+ * đơn dùng nguyên liệu đã biết là sắp hết (chủ quán đã được báo 1 lần, đủ để
+ * đi nhập hàng).
+ */
+function notifyLowStockIfJustCrossedThreshold(
+  rows: {
+    quantity_required: number;
+    ingredient: { id: string; name: string; unit: string; stock_quantity: number; min_threshold: number } | null;
+  }[],
+  quantityOrdered: number
+): void {
+  for (const row of rows) {
+    if (!row.ingredient) continue;
+    const { name, unit, stock_quantity: oldStock, min_threshold: minThreshold } = row.ingredient;
+    const newStock = oldStock - row.quantity_required * quantityOrdered;
+    if (oldStock > minThreshold && newStock <= minThreshold) {
+      notifyLowStockTelegram(name, newStock, unit, minThreshold);
+    }
+  }
 }
 
 /** Realtime tồn kho — dùng cho badge cảnh báo trên Dashboard + trang Quản lý kho tự cập nhật khi KDS trừ kho. */

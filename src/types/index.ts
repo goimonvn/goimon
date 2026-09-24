@@ -2,6 +2,8 @@ import type {
   ComboItemsRow,
   CombosRow,
   CustomersRow,
+  ExpenseCategory,
+  ExpensesRow,
   FeedbacksRow,
   ItemOptionsRow,
   LoyaltyTransactionsRow,
@@ -190,6 +192,10 @@ export interface DashboardSummary {
   ordersToday: number;
   vatInvoicesToday: number;
   tableStatusCounts: Record<TableStatus, number>;
+  /** Tổng chi phí ghi nhận hôm nay (Module 12) — xem services/expense.service.ts. */
+  totalExpensesToday: number;
+  /** = revenueToday - totalExpensesToday. CHỈ mang tính ước tính vận hành trong ngày (chưa trừ chi phí cố định phân bổ như mặt bằng/khấu hao) — xem ghi chú ở analytics.service.ts#getDashboardSummary. */
+  grossProfitToday: number;
 }
 
 /** Một điểm dữ liệu trên biểu đồ doanh thu (theo giờ hoặc theo ngày, tuỳ khoảng thời gian đã chọn). */
@@ -231,6 +237,8 @@ export interface MenuItemFormInput {
   imageUrl: string | null;
   stationType: StationType;
   isAvailable: boolean;
+  /** true (mặc định) = món tự động bật lại "còn hàng" mỗi sáng — Module 12, xem schema.sql. */
+  autoResetDaily: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +433,14 @@ export type TelegramNotifyPayload =
       ratingService: number;
       ratingSpace: number;
       comment: string | null;
+    }
+  | {
+      /** Cảnh báo nguyên liệu sắp/đã hết ngay sau khi trừ kho tự động — Module 12, xem services/inventory.service.ts. */
+      type: "low_stock";
+      ingredientName: string;
+      stockQuantity: number;
+      unit: string;
+      minThreshold: number;
     };
 
 // ---------------------------------------------------------------------------
@@ -608,4 +624,39 @@ export interface ComboFormInput {
   isActive: boolean;
   displayOrder: number;
   items: ComboItemDraft[];
+}
+
+// ---------------------------------------------------------------------------
+// Module 12 — Tối ưu vận hành, Tự động hoá Telegram & Quản lý tài chính
+// ---------------------------------------------------------------------------
+
+export const EXPENSE_CATEGORY_LABEL: Record<ExpenseCategory, string> = {
+  ingredient: "Nguyên liệu",
+  utility: "Điện/nước",
+  salary: "Lương nhân viên",
+  other: "Khác",
+};
+
+/** Input tạo khoản chi mới ở `/admin/expenses` — KHÔNG hỗ trợ sửa (chỉ tạo/xoá, giống quy ước đơn giản của vat_invoices/feedbacks), xem expense.service.ts. */
+export interface ExpenseFormInput {
+  title: string;
+  amount: number;
+  category: ExpenseCategory;
+  note: string;
+  /** Chuỗi "yyyy-MM-dd" (giá trị gốc của input[type=date]) — mặc định hôm nay, chủ quán có thể đổi để nhập bù chi phí ngày trước. */
+  expenseDate: string;
+}
+
+/** Bộ lọc danh sách chi phí ở `/admin/expenses` — mọi trường đều optional (không lọc = lấy tất cả). */
+export interface ExpenseFilters {
+  category: ExpenseCategory | "all";
+  /** "yyyy-MM-dd", inclusive. */
+  fromDate: string | null;
+  /** "yyyy-MM-dd", inclusive. */
+  toDate: string | null;
+}
+
+/** Chi phí kèm tên người tạo — dùng để hiển thị ở bảng danh sách (join 1 lần, không cần component tự tra cứu profiles). */
+export interface ExpenseWithCreator extends ExpensesRow {
+  createdByName: string | null;
 }

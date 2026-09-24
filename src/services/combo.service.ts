@@ -7,8 +7,13 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 // để khớp quy ước MENU_ITEM_EMBED đã dùng ở order.service.ts — kết quả trả về
 // đủ dữ liệu để "nổ" combo thành CartLine hoàn chỉnh (cần cả station_type để
 // gán đúng trạm KDS, is_available để cảnh báo nếu 1 thành phần đã hết món).
+// PHẢI liệt kê ĐỦ mọi cột của `MenuItemsRow` (kể cả `auto_reset_daily`, Module
+// 12) — `RawComboItemRow.menu_item` khai kiểu `MenuItemsRow` đầy đủ, thiếu cột
+// nào ở đây sẽ khiến field đó luôn `undefined` lúc chạy dù kiểu TypeScript vẫn
+// khẳng định là `boolean` (ép kiểu `as unknown as` bên dưới không tự phát hiện
+// được sai lệch này).
 const MENU_ITEM_FULL_EMBED =
-  "id, category_id, name, price, image_url, is_available, station_type, created_at" as const;
+  "id, category_id, name, price, image_url, is_available, station_type, auto_reset_daily, created_at" as const;
 
 type RawComboItemRow = {
   id: string;

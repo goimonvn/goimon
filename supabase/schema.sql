@@ -1036,5 +1036,69 @@ create policy "Admin delete combo_items" on combo_items for delete
   to authenticated
   using (public.current_user_role() = 'admin');
 
+-- ============================================================================
+-- Module 12 — Tối ưu vận hành, Tự động hoá Telegram & Quản lý tài chính
+-- (Operational Optimization & Expense Tracking)
+--
+-- 3 phần độc lập, KHÔNG đụng tới logic đặt món/KDS/thanh toán đã có:
+--   (A) `expenses` — sổ chi phí quán (nguyên liệu/điện nước/lương/khác), CHỈ
+--       chủ quán CRUD, dùng để tính "Lợi nhuận gộp = Doanh thu - Chi phí" ở
+--       Dashboard (xem analytics.service.ts#getDashboardSummary).
+--   (B) `menu_items.auto_reset_daily` — cờ đánh dấu món nào được TỰ ĐỘNG bật
+--       lại "còn hàng" mỗi sáng qua Vercel Cron (xem
+--       app/api/cron/reset-availability/route.ts) — dành cho món chỉ hết
+--       theo NGÀY (vd bánh làm sẵn số lượng có hạn), khác món hết hẳn vì lý
+--       do khác mà nhân viên tắt thủ công qua "Hết món nhanh" (Module 2) và
+--       muốn giữ tắt qua ngày hôm sau.
+--   (C) Báo cáo cuối ngày qua Telegram (xem
+--       app/api/reports/daily-telegram/route.ts) — CHỈ ĐỌC dữ liệu đã có sẵn
+--       (orders/expenses), không thêm bảng nào cho phần này.
+-- ============================================================================
+
+create table if not exists expenses (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  amount numeric(12, 0) not null check (amount > 0),
+  category text not null check (category in ('ingredient', 'utility', 'salary', 'other')),
+  note text,
+  expense_date date not null default current_date,
+  -- Nullable + on delete set null (giống order_items.combo_id ở Module 11):
+  -- xoá tài khoản nhân viên đã từng nhập chi phí không được phép xoá luôn
+  -- lịch sử chi phí đó.
+  created_by uuid references profiles (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_expenses_expense_date on expenses (expense_date);
+
+alter table expenses enable row level security;
+
+-- ---- expenses: CHỈ chủ quán CRUD (số liệu chi phí/lợi nhuận là dữ liệu
+--      nhạy cảm, khác menu/tồn kho vốn cho cả staff xem) ----
+drop policy if exists "Admin read expenses" on expenses;
+create policy "Admin read expenses" on expenses for select
+  to authenticated
+  using (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin insert expenses" on expenses;
+create policy "Admin insert expenses" on expenses for insert
+  to authenticated
+  with check (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin update expenses" on expenses;
+create policy "Admin update expenses" on expenses for update
+  to authenticated
+  using (public.current_user_role() = 'admin')
+  with check (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin delete expenses" on expenses;
+create policy "Admin delete expenses" on expenses for delete
+  to authenticated
+  using (public.current_user_role() = 'admin');
+
+-- ---- menu_items.auto_reset_daily: mặc định true (hầu hết món nên tự bật
+--      lại mỗi sáng trừ khi chủ quán chủ động tắt cho món đặc biệt) ----
+alter table menu_items add column if not exists auto_reset_daily boolean not null default true;
+
 -- Bật Realtime (Supabase Dashboard > Database > Replication), hoặc chạy:
--- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items;
+-- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses;

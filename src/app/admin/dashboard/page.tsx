@@ -15,7 +15,7 @@ import { useLowStockIngredients } from "@/hooks/useLowStockIngredients";
 import { useTables } from "@/hooks/useTables";
 import { formatCurrency } from "@/lib/utils";
 import type { TableWithOrders } from "@/types";
-import { AlertTriangle, ClipboardList, ReceiptText, Wallet } from "lucide-react";
+import { AlertTriangle, ClipboardList, PiggyBank, ReceiptText, TrendingDown, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -52,9 +52,9 @@ export default function AdminDashboardPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         {summaryLoading || !summary ? (
-          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)
+          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)
         ) : (
           <>
             <StatCard label="Doanh thu hôm nay" value={formatCurrency(summary.revenueToday)} icon={Wallet} />
@@ -63,6 +63,17 @@ export default function AdminDashboardPage() {
               label="Hoá đơn VAT hôm nay"
               value={`${summary.vatInvoicesToday}`}
               icon={ReceiptText}
+            />
+            <StatCard
+              label="Tổng chi phí hôm nay"
+              value={formatCurrency(summary.totalExpensesToday)}
+              icon={TrendingDown}
+            />
+            <StatCard
+              label="Lợi nhuận gộp hôm nay"
+              value={formatCurrency(summary.grossProfitToday)}
+              icon={PiggyBank}
+              className={summary.grossProfitToday < 0 ? "border-destructive/50" : undefined}
             />
             <TableStatusSummaryCard counts={summary.tableStatusCounts} />
           </>

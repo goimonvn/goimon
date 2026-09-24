@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/reset-availability",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/reports/daily-telegram",
+      "schedule": "0 15 * * *"
+    }
+  ]
+}

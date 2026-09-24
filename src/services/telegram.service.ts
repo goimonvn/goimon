@@ -42,3 +42,18 @@ export function notifyNewFeedbackTelegram(
 ): void {
   postTelegramNotification({ type: "new_feedback", tableNumber, ...ratings, comment });
 }
+
+/**
+ * Báo quán 1 nguyên liệu vừa xuống mức sắp/đã hết (stock_quantity <=
+ * min_threshold) NGAY SAU KHI trừ kho tự động — Module 12, gọi từ
+ * inventory.service.checkAndDeductInventoryForOrderItem. Cũng "bắn rồi quên"
+ * như mọi thông báo Telegram khác trong dự án (xem JSDoc postTelegramNotification).
+ */
+export function notifyLowStockTelegram(
+  ingredientName: string,
+  stockQuantity: number,
+  unit: string,
+  minThreshold: number
+): void {
+  postTelegramNotification({ type: "low_stock", ingredientName, stockQuantity, unit, minThreshold });
+}

@@ -137,6 +137,7 @@ export async function createMenuItem(input: MenuItemFormInput): Promise<MenuItem
       image_url: input.imageUrl,
       station_type: input.stationType,
       is_available: input.isAvailable,
+      auto_reset_daily: input.autoResetDaily,
     })
     .select("*")
     .single();
@@ -157,6 +158,7 @@ export async function updateMenuItem(menuItemId: string, input: MenuItemFormInpu
       image_url: input.imageUrl,
       station_type: input.stationType,
       is_available: input.isAvailable,
+      auto_reset_daily: input.autoResetDaily,
     })
     .eq("id", menuItemId);
 

@@ -73,6 +73,23 @@ function buildMessageText(body: unknown): string | null {
       return `🙋 <b>Bàn ${body.tableNumber}</b>: ${escapeHtml(STAFF_CALL_LABEL[body.requestType])}`;
     }
 
+    case "low_stock": {
+      const ingredientName =
+        typeof body.ingredientName === "string" && body.ingredientName.trim()
+          ? escapeHtml(body.ingredientName.slice(0, MAX_ITEM_NAME_LENGTH))
+          : null;
+      const stockQuantity = typeof body.stockQuantity === "number" ? body.stockQuantity : null;
+      const minThreshold = typeof body.minThreshold === "number" ? body.minThreshold : null;
+      const unit = typeof body.unit === "string" ? escapeHtml(body.unit.slice(0, 20)) : "";
+      if (ingredientName === null || stockQuantity === null || minThreshold === null) return null;
+
+      return [
+        `📉 <b>Sắp hết nguyên liệu: ${ingredientName}</b>`,
+        `Tồn kho hiện tại: ${stockQuantity}${unit} (ngưỡng cảnh báo: ${minThreshold}${unit})`,
+        "Vui lòng nhập thêm hàng.",
+      ].join("\n");
+    }
+
     case "new_feedback": {
       const tableLabel = isValidTableNumber(body.tableNumber) ? `Bàn ${body.tableNumber}` : "Khách";
       const ratingBeverage = typeof body.ratingBeverage === "number" ? body.ratingBeverage : 0;

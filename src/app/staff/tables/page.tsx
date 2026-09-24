@@ -24,6 +24,19 @@ export default function StaffTablesPage() {
     window.open(`/staff/tables/print?table=${table.id}`, "_blank", "noopener,noreferrer");
   }
 
+  /**
+   * "Gọi món hộ" (Module 12) — mở màn hình đặt món CỦA CHÍNH BÀN ĐÓ trên
+   * thiết bị nhân viên đang cầm, cho khách không rành quét QR. Dùng CÙNG query
+   * param `?table=<table_number>` mà QR code thật đang trỏ tới (xem
+   * TableContext.tsx) — KHÔNG dùng `table_id` (dù đã có sẵn trong tay từ
+   * `table.id`) để không phải mở thêm 1 nhánh xử lý mới trong TableContext chỉ
+   * để phục vụ đúng 1 điểm vào này; mở tab mới (giống "In hoá đơn") để không
+   * mất lưới quản lý bàn đang xem.
+   */
+  function handleOrderForCustomer(table: TableWithOrders) {
+    window.open(`/order?table=${table.table_number}`, "_blank", "noopener,noreferrer");
+  }
+
   if (loading) {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -40,7 +53,12 @@ export default function StaffTablesPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {tables.map((table) => (
-          <TableCard key={table.id} table={table} onClick={() => setSelectedTableId(table.id)} />
+          <TableCard
+            key={table.id}
+            table={table}
+            onClick={() => setSelectedTableId(table.id)}
+            onOrderForCustomer={handleOrderForCustomer}
+          />
         ))}
       </div>
 

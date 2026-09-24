@@ -19,6 +19,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { formatCurrency } from "@/lib/utils";
 import {
   createItemOption,
@@ -70,6 +71,7 @@ export function MenuItemFormSheet({
   const [categoryId, setCategoryId] = useState(defaultCategoryId);
   const [stationType, setStationType] = useState<StationType>("kitchen");
   const [isAvailable, setIsAvailable] = useState(true);
+  const [autoResetDaily, setAutoResetDaily] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const [newOptionName, setNewOptionName] = useState("");
@@ -85,6 +87,7 @@ export function MenuItemFormSheet({
     setCategoryId(item?.category_id ?? defaultCategoryId);
     setStationType(item?.station_type ?? "kitchen");
     setIsAvailable(item?.is_available ?? true);
+    setAutoResetDaily(item?.auto_reset_daily ?? true);
     setNewOptionName("");
     setNewOptionPrice("0");
   }, [open, item, defaultCategoryId]);
@@ -113,6 +116,7 @@ export function MenuItemFormSheet({
       imageUrl: imageUrl.trim() || null,
       stationType,
       isAvailable,
+      autoResetDaily,
     };
 
     setSubmitting(true);
@@ -245,6 +249,18 @@ export function MenuItemFormSheet({
               <Label htmlFor="item-available" className="cursor-pointer font-normal">
                 Còn hàng (hiển thị cho khách đặt)
               </Label>
+            </div>
+
+            <div className="flex items-center justify-between rounded-xl border border-dashed p-3">
+              <div>
+                <Label htmlFor="item-auto-reset" className="cursor-pointer font-normal">
+                  Tự động bật lại mỗi sáng
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Vercel Cron sẽ tự đặt lại &quot;còn hàng&quot; cho món này mỗi sáng, kể cả khi bị tắt hôm trước.
+                </p>
+              </div>
+              <Switch id="item-auto-reset" checked={autoResetDaily} onCheckedChange={setAutoResetDaily} />
             </div>
 
             <Button type="submit" className="w-full" disabled={submitting}>

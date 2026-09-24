@@ -5,8 +5,10 @@ import {
   formatHour,
   getWeekComparisonRanges,
   mondayFirstWeekdayIndex,
+  shopDateString,
   SHOP_HOUR_RANGE,
 } from "@/lib/analytics";
+import { getTotalExpenses } from "./expense.service";
 import {
   AppError,
   WEEKDAY_LABELS,
@@ -43,11 +45,17 @@ function startOfToday(): Date {
  */
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   const todayIso = startOfToday().toISOString();
+  // Chi phí (Module 12) lọc theo cột DATE `expense_date`, không phải
+  // `created_at` — dùng `shopDateString()` (giờ quán Asia/Ho_Chi_Minh tường
+  // minh, xem lib/analytics.ts) thay vì tự suy ra "yyyy-MM-dd" từ `todayIso`
+  // (một chuỗi ISO theo giờ UTC sẽ lệch ngày nếu tự cắt chuỗi).
+  const todayDateStr = shopDateString();
 
-  const [ordersRes, vatRes, tablesRes] = await Promise.all([
+  const [ordersRes, vatRes, tablesRes, totalExpensesToday] = await Promise.all([
     supabase.from("orders").select("total_amount, payment_status").gte("created_at", todayIso),
     supabase.from("vat_invoices").select("id", { count: "exact", head: true }).gte("created_at", todayIso),
     supabase.from("tables").select("status"),
+    getTotalExpenses(todayDateStr, todayDateStr),
   ]);
 
   if (ordersRes.error || vatRes.error || tablesRes.error) {
@@ -78,6 +86,11 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     ordersToday: ordersRes.data?.length ?? 0,
     vatInvoicesToday: vatRes.count ?? 0,
     tableStatusCounts,
+    totalExpensesToday,
+    // CHỈ mang tính ước tính vận hành trong ngày — chưa trừ các chi phí cố
+    // định phân bổ hàng ngày (mặt bằng, khấu hao thiết bị...) nếu quán không
+    // ghi nhận chúng qua `/admin/expenses` theo từng ngày.
+    grossProfitToday: revenueToday - totalExpensesToday,
   };
 }
 

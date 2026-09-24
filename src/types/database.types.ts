@@ -16,6 +16,7 @@ export type UserRole = "admin" | "staff";
 export type LoyaltyReason = "earn_order" | "manual_adjust";
 export type ShiftStatus = "active" | "closed";
 export type PromotionDiscountType = "percentage" | "fixed";
+export type ExpenseCategory = "ingredient" | "utility" | "salary" | "other";
 
 export interface TablesRow {
   id: string;
@@ -40,6 +41,8 @@ export interface MenuItemsRow {
   image_url: string | null;
   is_available: boolean;
   station_type: StationType;
+  /** true (mặc định) = tự động bật lại "còn hàng" mỗi sáng qua Vercel Cron — Module 12. */
+  auto_reset_daily: boolean;
   created_at: string;
 }
 
@@ -248,6 +251,23 @@ export interface ComboItemsRow {
   quantity: number;
 }
 
+/**
+ * 1 khoản chi phí quán (Module 12) — `expense_date` là NGÀY (không giờ),
+ * mặc định ngày hiện tại lúc nhập nhưng chủ quán có thể chọn lại ngày chi
+ * thực tế (vd nhập bù hoá đơn điện nước của tháng trước). `created_by` nullable
+ * vì xoá tài khoản nhân viên không được xoá luôn lịch sử chi phí họ đã nhập.
+ */
+export interface ExpensesRow {
+  id: string;
+  title: string;
+  amount: number;
+  category: ExpenseCategory;
+  note: string | null;
+  expense_date: string;
+  created_by: string | null;
+  created_at: string;
+}
+
 // `Relationships` bắt buộc phải có mặt (dù rỗng) để khớp đúng ràng buộc
 // generic `GenericTable` của @supabase/supabase-js — thiếu trường này khiến
 // TypeScript không suy luận được kiểu tham số cho .select()/.update() (sụp
@@ -279,8 +299,8 @@ export interface Database {
       >;
       menu_items: TableDefinition<
         MenuItemsRow,
-        Omit<MenuItemsRow, "id" | "created_at" | "is_available"> &
-          Partial<Pick<MenuItemsRow, "is_available">>,
+        Omit<MenuItemsRow, "id" | "created_at" | "is_available" | "auto_reset_daily"> &
+          Partial<Pick<MenuItemsRow, "is_available" | "auto_reset_daily">>,
         Partial<Omit<MenuItemsRow, "id" | "created_at">>
       >;
       item_options: TableDefinition<
@@ -382,6 +402,12 @@ export interface Database {
         ComboItemsRow,
         Omit<ComboItemsRow, "id" | "quantity"> & Partial<Pick<ComboItemsRow, "quantity">>,
         Partial<Omit<ComboItemsRow, "id">>
+      >;
+      expenses: TableDefinition<
+        ExpensesRow,
+        Omit<ExpensesRow, "id" | "created_at" | "expense_date" | "note" | "created_by"> &
+          Partial<Pick<ExpensesRow, "expense_date" | "note" | "created_by">>,
+        Partial<Omit<ExpensesRow, "id" | "created_at">>
       >;
     };
     Views: Record<string, never>;

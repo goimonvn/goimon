@@ -129,3 +129,43 @@ export function findPeakTwoHourWindow(
 export function formatHour(hour: number): string {
   return `${hour.toString().padStart(2, "0")}:00`;
 }
+
+// ---------------------------------------------------------------------------
+// Module 12 — Múi giờ quán cho các Route Handler chạy trên server (Vercel)
+//
+// Mọi hàm "hôm nay" ở TRÊN đều dùng `Date` cục bộ của TRÌNH DUYỆT (đã ngầm
+// định trùng múi giờ quán — Asia/Ho_Chi_Minh, xem ghi chú ở
+// analytics.service.ts#getDashboardSummary). Route Handler chạy trên server
+// (Vercel Cron gọi `/api/reports/daily-telegram`, `/api/cron/reset-availability`)
+// KHÔNG có "trình duyệt" nào — server Vercel mặc định chạy giờ UTC, nên 2 hàm
+// dưới đây tính tường minh theo múi giờ Asia/Ho_Chi_Minh (UTC+7 CỐ ĐỊNH quanh
+// năm, Việt Nam không có giờ mùa hè) bằng `Intl.DateTimeFormat`/offset ISO
+// tường minh, KHÔNG dựa vào giờ hệ thống của server.
+// ---------------------------------------------------------------------------
+
+const SHOP_TIMEZONE = "Asia/Ho_Chi_Minh";
+
+/** "yyyy-MM-dd" theo giờ quán, dùng để lọc cột DATE (`expenses.expense_date`) — locale "en-CA" cho định dạng ISO gọn, không cần tự ghép chuỗi. */
+export function shopDateString(date: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: SHOP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/**
+ * Khoảng UTC instant khớp đúng "00:00:00 -> 23:59:59.999" theo giờ quán của
+ * NGÀY chứa `date` — dùng để lọc cột TIMESTAMPTZ (`orders.created_at`).
+ * Offset "+07:00" ghi tường minh trong chuỗi ISO (thay vì cộng/trừ giờ thủ
+ * công) để `new Date(...)` parse ra đúng UTC instant, không phụ thuộc múi giờ
+ * mặc định của server đang chạy đoạn code này.
+ */
+export function shopDayBounds(date: Date = new Date()): { from: Date; to: Date } {
+  const dateStr = shopDateString(date);
+  return {
+    from: new Date(`${dateStr}T00:00:00+07:00`),
+    to: new Date(`${dateStr}T23:59:59.999+07:00`),
+  };
+}

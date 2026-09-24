@@ -79,7 +79,13 @@ export function VatInvoiceDialog({ open, onOpenChange, orderId }: VatInvoiceDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent
+        // Cùng lý do như ItemOptionsSheet.tsx: chặn Radix tự động focus vào ô
+        // "Tên công ty" (input đầu tiên) khi dialog mở, tránh bàn phím ảo che
+        // mất nội dung ngay khi khách vừa mở form xuất hoá đơn VAT trên di
+        // động.
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Xuất hoá đơn VAT</DialogTitle>
         </DialogHeader>

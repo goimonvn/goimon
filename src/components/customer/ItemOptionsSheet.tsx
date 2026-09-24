@@ -66,7 +66,18 @@ export function ItemOptionsSheet({ item, onOpenChange, onConfirm }: ItemOptionsS
 
   return (
     <Sheet open={item !== null} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="flex max-h-[85dvh] flex-col p-0">
+      <SheetContent
+        side="bottom"
+        className="flex max-h-[85dvh] flex-col p-0"
+        // Mặc định Radix tự focus vào phần tử focusable ĐẦU TIÊN khi sheet mở
+        // — với món KHÔNG có topping, đó là ô "Ghi chú" (Textarea), khiến bàn
+        // phím ảo bật lên NGAY LẬP TỨC che mất nội dung trên di động (khách
+        // chưa kịp thấy tên món/giá đã bị bàn phím che). Chặn hành vi này lại
+        // vì đây là bottom sheet cho khách hàng trên di động, không phải form
+        // nhập liệu nhanh trên desktop (khác các Sheet quản trị vẫn cố ý dùng
+        // `autoFocus`, vd `MenuItemFormSheet.tsx`).
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         {item && (
           <>
             <SheetHeader>

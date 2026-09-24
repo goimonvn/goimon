@@ -221,6 +221,14 @@ export interface ShiftsRow {
   total_revenue_transfer: number;
   status: ShiftStatus;
   created_at: string;
+  /**
+   * Module 14: dấu vết chủ quán từng can thiệp tay vào ca này (đóng ca hộ,
+   * hoặc sửa initial_cash/final_cash) — `null` nghĩa là ca chưa từng bị sửa.
+   * 3 cột này LUÔN đi cùng nhau (cùng null hoặc cùng có giá trị).
+   */
+  admin_note: string | null;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 /** Kết quả trả về của RPC `close_shift` — giống ShiftsRow + số đơn đã thu tiền trong ca (không lưu cột riêng, chỉ tính lúc đóng ca). */
@@ -433,11 +441,32 @@ export interface Database {
       >;
       shifts: TableDefinition<
         ShiftsRow,
-        Omit<ShiftsRow, "id" | "created_at" | "start_time" | "end_time" | "final_cash" | "total_revenue_cash" | "total_revenue_transfer" | "status"> &
+        Omit<
+          ShiftsRow,
+          | "id"
+          | "created_at"
+          | "start_time"
+          | "end_time"
+          | "final_cash"
+          | "total_revenue_cash"
+          | "total_revenue_transfer"
+          | "status"
+          | "admin_note"
+          | "edited_by"
+          | "edited_at"
+        > &
           Partial<
             Pick<
               ShiftsRow,
-              "start_time" | "end_time" | "final_cash" | "total_revenue_cash" | "total_revenue_transfer" | "status"
+              | "start_time"
+              | "end_time"
+              | "final_cash"
+              | "total_revenue_cash"
+              | "total_revenue_transfer"
+              | "status"
+              | "admin_note"
+              | "edited_by"
+              | "edited_at"
             >
           >,
         Partial<Omit<ShiftsRow, "id" | "created_at">>
@@ -495,6 +524,8 @@ export interface Database {
         Args: {
           p_shift_id: string;
           p_final_cash: number;
+          /** Module 14: chỉ truyền khi CHỦ QUÁN đóng ca hộ nhân viên — bỏ trống ở luồng nhân viên tự đóng ca. */
+          p_admin_note?: string | null;
         };
         Returns: CloseShiftResultRow[];
       };

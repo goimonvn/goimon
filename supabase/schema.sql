@@ -1101,6 +1101,106 @@ create policy "Admin delete expenses" on expenses for delete
 alter table menu_items add column if not exists auto_reset_daily boolean not null default true;
 
 -- ============================================================================
+-- Module 14 — Chủ quán sửa/đóng ca hộ nhân viên (Admin Shift Correction)
+--
+-- Bổ sung cho Module 8: chủ quán trước đây CHỈ xem được lịch sử ca (SELECT),
+-- không có cách nào tự sửa nếu nhân viên quên bấm "Kết thúc ca" hoặc đếm nhầm
+-- tiền lúc chốt ca — phải can thiệp trực tiếp vào Supabase Dashboard. 2 tình
+-- huống cụ thể cần xử lý:
+--   (A) Nhân viên quên "Kết thúc ca" trước khi ra về -> chủ quán "Đóng ca hộ"
+--       (dùng LẠI ĐÚNG RPC close_shift bên dưới, chỉ mở rộng quyền gọi + thêm
+--       tham số lý do tuỳ chọn).
+--   (B) Nhân viên gõ nhầm tiền đầu ca, hoặc đếm nhầm tiền lúc chốt ca -> chủ
+--       quán "Sửa số liệu" (initial_cash/final_cash) trực tiếp qua UPDATE
+--       thường (không cần RPC riêng, đã có policy admin bên dưới).
+-- CỐ Ý KHÔNG cho sửa total_revenue_cash/total_revenue_transfer bằng bất kỳ
+-- đường nào (kể cả UPDATE thường) — 2 cột này LUÔN được suy ra lại đúng từ
+-- `orders` mỗi lần đóng ca, sửa tay sẽ làm sai lệch số liệu gốc; nếu số đó
+-- sai, nguyên nhân thật nằm ở dữ liệu `orders`, không phải ở bảng `shifts`.
+-- ============================================================================
+
+-- ---- shifts: 3 cột audit — ghi lại CÓ ai (chủ quán) từng can thiệp tay vào
+--      ca này hay không, vì sao, và lúc nào — để nhân viên/chủ quán khác xem
+--      lại lịch sử không bị bất ngờ khi thấy số liệu khác với lúc họ tự chốt
+--      ca. NULL nghĩa là ca này chưa từng bị admin chỉnh sửa. ----
+alter table shifts add column if not exists admin_note text;
+alter table shifts add column if not exists edited_by uuid references profiles (id);
+alter table shifts add column if not exists edited_at timestamptz;
+
+-- ---- shifts: cho phép chủ quán UPDATE bất kỳ ca nào (không chỉ ca của
+--      chính mình) — policy PERMISSIVE này ghép OR với "Staff update own
+--      shift" đã có từ Module 8 (không thay thế), nên nhân viên vẫn tự sửa
+--      ca của mình bình thường, chủ quán có thêm quyền sửa ca của MỌI nhân
+--      viên. Giống hệt mức tin cậy đã chấp nhận ở các bảng admin-only khác
+--      (zones, combos, expenses...) — chủ quán vốn đã có toàn quyền dữ liệu
+--      trong ứng dụng này. ----
+drop policy if exists "Admin update any shift" on shifts;
+create policy "Admin update any shift" on shifts for update
+  to authenticated
+  using (public.current_user_role() = 'admin')
+  with check (public.current_user_role() = 'admin');
+
+-- ---- close_shift: thêm tham số p_admin_note (mặc định null, KHÔNG đổi cách
+--      gọi hiện có của nhân viên) — khi chủ quán gọi kèm lý do, hàm ghi luôn
+--      admin_note/edited_by/edited_at NGUYÊN TỬ trong CÙNG câu UPDATE tính
+--      doanh thu, không cần round-trip thứ 2. Đổi số lượng tham số nên phải
+--      DROP hàm cũ trước rồi mới CREATE lại — "create or replace" không thay
+--      thế được hàm có chữ ký (số tham số) khác, sẽ tạo thêm 1 overload gây
+--      mơ hồ khi gọi. ----
+drop function if exists public.close_shift(uuid, numeric);
+
+create or replace function public.close_shift(
+  p_shift_id uuid,
+  p_final_cash numeric,
+  p_admin_note text default null
+)
+returns table (
+  id uuid,
+  staff_id uuid,
+  start_time timestamptz,
+  end_time timestamptz,
+  initial_cash numeric,
+  final_cash numeric,
+  total_revenue_cash numeric,
+  total_revenue_transfer numeric,
+  status text,
+  created_at timestamptz,
+  admin_note text,
+  edited_by uuid,
+  edited_at timestamptz,
+  order_count bigint
+)
+language plpgsql
+as $$
+begin
+  return query
+  update public.shifts s
+  set
+    end_time = now(),
+    final_cash = p_final_cash,
+    total_revenue_cash = coalesce((
+      select sum(o.total_amount) from public.orders o
+      where o.shift_id = s.id and o.payment_status = 'paid' and o.payment_method = 'cash'
+    ), 0),
+    total_revenue_transfer = coalesce((
+      select sum(o.total_amount) from public.orders o
+      where o.shift_id = s.id and o.payment_status = 'paid' and o.payment_method = 'transfer'
+    ), 0),
+    status = 'closed',
+    admin_note = case when p_admin_note is not null then p_admin_note else s.admin_note end,
+    edited_by = case when p_admin_note is not null then auth.uid() else s.edited_by end,
+    edited_at = case when p_admin_note is not null then now() else s.edited_at end
+  where s.id = p_shift_id
+    and s.status = 'active'
+  returning
+    s.id, s.staff_id, s.start_time, s.end_time, s.initial_cash, s.final_cash,
+    s.total_revenue_cash, s.total_revenue_transfer, s.status, s.created_at,
+    s.admin_note, s.edited_by, s.edited_at,
+    (select count(*) from public.orders o2 where o2.shift_id = s.id and o2.payment_status = 'paid');
+end;
+$$;
+
+-- ============================================================================
 -- Module 13 — Sơ đồ Bàn theo Khu vực (Visual Floor Plan) & Đặt Mang đi
 -- (Visual Floor Plan & Zones + Takeaway Orders)
 --

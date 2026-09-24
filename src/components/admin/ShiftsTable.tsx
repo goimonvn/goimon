@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { calculateCashDiscrepancy } from "@/lib/shifts";
 import { cn, formatCurrency } from "@/lib/utils";
 import { SHIFT_STATUS_LABEL, type ShiftWithStaff } from "@/types";
+import { Pencil } from "lucide-react";
 
 interface ShiftsTableProps {
   shifts: ShiftWithStaff[];
@@ -56,7 +57,17 @@ export function ShiftsTable({ shifts, loading, onSelect }: ShiftsTableProps) {
                 onClick={() => onSelect(shift)}
                 className="cursor-pointer border-t transition-colors hover:bg-accent"
               >
-                <td className="px-4 py-3 font-medium">{shift.staffName}</td>
+                <td className="px-4 py-3 font-medium">
+                  <span className="inline-flex items-center gap-1.5">
+                    {shift.staffName}
+                    {shift.admin_note && (
+                      <Pencil
+                        className="h-3.5 w-3.5 shrink-0 text-amber-600"
+                        aria-label="Đã được chủ quán chỉnh sửa"
+                      />
+                    )}
+                  </span>
+                </td>
                 <td className="px-4 py-3 tabular-nums text-muted-foreground">{formatDateTime(shift.start_time)}</td>
                 <td className="hidden px-4 py-3 tabular-nums text-muted-foreground sm:table-cell">
                   {formatDateTime(shift.end_time)}

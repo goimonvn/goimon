@@ -484,6 +484,8 @@ export const SHIFT_STATUS_LABEL: Record<ShiftStatus, string> = {
 /** Ca làm việc kèm tên nhân viên — dùng cho danh sách lịch sử ở `/admin/shifts`. */
 export interface ShiftWithStaff extends ShiftsRow {
   staffName: string;
+  /** Module 14: tên chủ quán đã đóng ca hộ/sửa số liệu ca này — `null` nếu ca chưa từng bị admin can thiệp. */
+  editorName: string | null;
 }
 
 // ---------------------------------------------------------------------------

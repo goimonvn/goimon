@@ -8,6 +8,8 @@ import { toast } from "sonner";
 interface UseShiftHistoryResult {
   shifts: ShiftWithStaff[];
   loading: boolean;
+  /** Module 14: gọi tay sau khi admin đóng ca hộ/sửa số liệu, để bảng cập nhật ngay thay vì đợi sự kiện realtime. */
+  refetch: () => void;
 }
 
 /** Lịch sử ca làm việc toàn quán — tự làm mới ngay khi có ca mới mở/đóng (realtime), dùng cho /admin/shifts. */
@@ -41,5 +43,5 @@ export function useShiftHistory(): UseShiftHistoryResult {
     };
   }, [reloadToken, refetch]);
 
-  return { shifts, loading };
+  return { shifts, loading, refetch };
 }

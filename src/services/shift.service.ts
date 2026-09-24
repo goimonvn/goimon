@@ -100,11 +100,21 @@ export async function closeShift(shiftId: string, finalCash: number): Promise<Cl
   return result;
 }
 
-/** Toàn bộ lịch sử ca làm việc kèm tên nhân viên — dùng cho `/admin/shifts`, mới nhất trước. */
+/**
+ * Toàn bộ lịch sử ca làm việc kèm tên nhân viên — dùng cho `/admin/shifts`, mới nhất trước.
+ *
+ * Từ Module 14, `shifts` có 2 khoá ngoại riêng biệt tới `profiles`
+ * (`staff_id` VÀ `edited_by`) nên PHẢI chỉ rõ tên ràng buộc (`!<fkey>`) ở mỗi
+ * embed — nếu không, PostgREST không tự biết embed nào ứng với cột nào, sẽ
+ * báo lỗi "more than one relationship was found". Tên ràng buộc theo đúng quy
+ * ước đặt tên mặc định của Postgres cho FK 1 cột: `<table>_<column>_fkey`.
+ */
 export async function getShiftHistory(): Promise<ShiftWithStaff[]> {
   const { data, error } = await supabase
     .from("shifts")
-    .select("*, staff:profiles(full_name, email)")
+    .select(
+      "*, staff:profiles!shifts_staff_id_fkey(full_name, email), editor:profiles!shifts_edited_by_fkey(full_name, email)"
+    )
     .order("start_time", { ascending: false });
 
   if (error) {
@@ -112,12 +122,105 @@ export async function getShiftHistory(): Promise<ShiftWithStaff[]> {
   }
 
   // Xem ghi chú ở order.service.ts về việc ép kiểu tường minh cho trường embed.
-  type RawRow = ShiftsRow & { staff: { full_name: string | null; email: string } | null };
+  type RawRow = ShiftsRow & {
+    staff: { full_name: string | null; email: string } | null;
+    editor: { full_name: string | null; email: string } | null;
+  };
 
-  return ((data ?? []) as unknown as RawRow[]).map(({ staff, ...rest }) => ({
+  return ((data ?? []) as unknown as RawRow[]).map(({ staff, editor, ...rest }) => ({
     ...rest,
     staffName: staff?.full_name || staff?.email || "Không rõ",
+    editorName: editor ? editor.full_name || editor.email : null,
   }));
+}
+
+/**
+ * (Chủ quán, Module 14) Đóng ca HỘ 1 nhân viên đã quên bấm "Kết thúc ca" —
+ * gọi LẠI ĐÚNG RPC `close_shift` (tính doanh thu tiền mặt/chuyển khoản
+ * NGUYÊN TỬ từ `orders`, giống hệt luồng nhân viên tự đóng ca), chỉ khác:
+ * chủ quán gọi được cho BẤT KỲ ca nào (nhờ policy "Admin update any shift")
+ * và bắt buộc nhập `note` giải trình lý do — RPC tự ghi vào `admin_note`/
+ * `edited_by`/`edited_at` để có dấu vết ai đã can thiệp và vì sao.
+ */
+export async function adminCloseShift(
+  shiftId: string,
+  finalCash: number,
+  note: string
+): Promise<CloseShiftResultRow> {
+  if (finalCash < 0) {
+    throw new AppError("Tiền mặt thực đếm không được âm.");
+  }
+  if (!note.trim()) {
+    throw new AppError("Vui lòng nhập lý do đóng ca hộ.");
+  }
+
+  const { data, error } = await supabase.rpc("close_shift", {
+    p_shift_id: shiftId,
+    p_final_cash: finalCash,
+    p_admin_note: note.trim(),
+  });
+
+  if (error) {
+    throw new AppError("Không thể đóng ca hộ. Vui lòng thử lại.", error);
+  }
+
+  const result = data?.[0];
+  if (!result) {
+    throw new AppError("Ca làm việc không tồn tại hoặc đã được kết thúc trước đó.");
+  }
+  return result;
+}
+
+export interface AdminShiftCashEdit {
+  initialCash: number;
+  /** `null` khi ca đang mở (chưa có số để sửa) — giữ nguyên `final_cash = null` hiện có. */
+  finalCash: number | null;
+}
+
+/**
+ * (Chủ quán, Module 14) Sửa lại "Tiền đầu ca"/"Tiền mặt thực đếm" của 1 ca —
+ * dùng khi nhân viên gõ nhầm lúc bắt đầu ca, hoặc đếm nhầm tiền lúc chốt ca.
+ * CỐ Ý KHÔNG cho sửa `total_revenue_cash`/`total_revenue_transfer` qua đường
+ * này (2 cột đó luôn được tính lại đúng từ `orders` trong `close_shift`,
+ * sửa tay sẽ làm sai lệch số liệu gốc). Bắt buộc nhập `note` giải trình lý
+ * do, ghi cùng lúc vào `admin_note`/`edited_by`/`edited_at`.
+ */
+export async function adminUpdateShiftCash(
+  shiftId: string,
+  edit: AdminShiftCashEdit,
+  note: string
+): Promise<void> {
+  if (edit.initialCash < 0) {
+    throw new AppError("Tiền đầu ca không được âm.");
+  }
+  if (edit.finalCash !== null && edit.finalCash < 0) {
+    throw new AppError("Tiền mặt thực đếm không được âm.");
+  }
+  if (!note.trim()) {
+    throw new AppError("Vui lòng nhập lý do chỉnh sửa.");
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    throw new AppError("Vui lòng đăng nhập lại.");
+  }
+
+  const { error } = await supabase
+    .from("shifts")
+    .update({
+      initial_cash: edit.initialCash,
+      final_cash: edit.finalCash,
+      admin_note: note.trim(),
+      edited_by: user.id,
+      edited_at: new Date().toISOString(),
+    })
+    .eq("id", shiftId);
+
+  if (error) {
+    throw new AppError("Không thể cập nhật ca làm việc.", error);
+  }
 }
 
 /** Realtime: Admin thấy ngay khi có ca mới bắt đầu/kết thúc, không cần refresh trang. */

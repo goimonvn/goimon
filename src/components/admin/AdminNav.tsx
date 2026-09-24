@@ -4,13 +4,14 @@ import { LogoutButton } from "@/components/shared/LogoutButton";
 import { cn } from "@/lib/utils";
 import { USER_ROLE_LABEL } from "@/types";
 import type { ProfilesRow } from "@/types/database.types";
-import { BarChart3, Boxes, Clock, Gift, LayoutDashboard, ReceiptText, Star, Ticket, Users, UtensilsCrossed, Wallet } from "lucide-react";
+import { BarChart3, Boxes, Clock, Gift, LayoutDashboard, MapPin, ReceiptText, Star, Ticket, Users, UtensilsCrossed, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
   { href: "/admin/dashboard", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/admin/menu", label: "Quản lý menu", icon: UtensilsCrossed },
+  { href: "/admin/zones", label: "Khu vực", icon: MapPin },
   { href: "/admin/combos", label: "Combo", icon: Gift },
   { href: "/admin/inventory", label: "Kho hàng", icon: Boxes },
   { href: "/admin/promotions", label: "Khuyến mãi", icon: Ticket },

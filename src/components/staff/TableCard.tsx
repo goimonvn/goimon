@@ -1,9 +1,9 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { cn, formatCurrency } from "@/lib/utils";
 import { TABLE_STATUS_LABEL, type TableWithOrders } from "@/types";
-import { Bell, Smartphone } from "lucide-react";
+import { Bell, Circle, RectangleHorizontal, Smartphone, Square, Sparkles } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 
 interface TableCardProps {
@@ -15,12 +15,33 @@ interface TableCardProps {
    * để không làm rối 1 màn hình vốn chỉ để xem tổng quan.
    */
   onOrderForCustomer?: (table: TableWithOrders) => void;
+  /**
+   * "Bàn dọn dẹp" -> "Bàn trống" (Module 13) — nhân viên bấm 1 chạm để xác
+   * nhận đã dọn xong, KHÔNG cần mở chi tiết bàn ra xem. Chỉ hiển thị khi cha
+   * truyền prop này VÀ bàn đang ở trạng thái `needs_cleaning`.
+   */
+  onMarkCleaned?: (table: TableWithOrders) => void;
 }
 
+/** Module 13: 4 trạng thái bàn — xem vòng đời đầy đủ ở JSDoc TABLE_STATUS_LABEL (types/index.ts). */
 const STATUS_STYLE: Record<TableWithOrders["status"], string> = {
-  empty: "border-border bg-card",
-  ordering: "border-amber-400 bg-amber-50",
-  paid: "border-primary bg-primary/10",
+  available: "border-emerald-400 bg-emerald-50",
+  occupied: "border-destructive bg-destructive/10",
+  payment_pending: "border-amber-400 bg-amber-50",
+  needs_cleaning: "border-slate-400 bg-slate-100",
+};
+
+const STATUS_BADGE_VARIANT: Record<TableWithOrders["status"], BadgeProps["variant"]> = {
+  available: "success",
+  occupied: "destructive",
+  payment_pending: "warning",
+  needs_cleaning: "secondary",
+};
+
+const SHAPE_ICON: Record<TableWithOrders["shape"], typeof Square> = {
+  square: Square,
+  round: Circle,
+  rectangle: RectangleHorizontal,
 };
 
 /**
@@ -31,13 +52,14 @@ const STATUS_STYLE: Record<TableWithOrders["status"], string> = {
  * `role="button"` + `tabIndex`/`onKeyDown` giữ nguyên khả năng thao tác bằng
  * bàn phím mà thẻ `<button>` gốc vốn có sẵn.
  */
-export function TableCard({ table, onClick, onOrderForCustomer }: TableCardProps) {
+export function TableCard({ table, onClick, onOrderForCustomer, onMarkCleaned }: TableCardProps) {
   const total = table.activeOrders.reduce((sum, order) => sum + order.total_amount, 0);
   const itemCount = table.activeOrders.reduce(
     (sum, order) => sum + order.order_items.reduce((s, i) => s + i.quantity, 0),
     0
   );
   const hasPendingCall = table.pendingStaffCalls.length > 0;
+  const ShapeIcon = SHAPE_ICON[table.shape];
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Enter" || e.key === " ") {
@@ -49,6 +71,11 @@ export function TableCard({ table, onClick, onOrderForCustomer }: TableCardProps
   function handleOrderForCustomerClick(e: MouseEvent<HTMLButtonElement>) {
     e.stopPropagation();
     onOrderForCustomer?.(table);
+  }
+
+  function handleMarkCleanedClick(e: MouseEvent<HTMLButtonElement>) {
+    e.stopPropagation();
+    onMarkCleaned?.(table);
   }
 
   return (
@@ -79,12 +106,11 @@ export function TableCard({ table, onClick, onOrderForCustomer }: TableCardProps
        * nội dung hơn.
        */}
       <div className="flex flex-col gap-2">
-        <span className="text-2xl font-bold">Bàn {table.table_number}</span>
-        <Badge
-          variant={table.status === "empty" ? "outline" : table.status === "ordering" ? "warning" : "success"}
-        >
-          {TABLE_STATUS_LABEL[table.status]}
-        </Badge>
+        <span className="flex items-center gap-1.5 text-2xl font-bold">
+          <ShapeIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          Bàn {table.table_number}
+        </span>
+        <Badge variant={STATUS_BADGE_VARIANT[table.status]}>{TABLE_STATUS_LABEL[table.status]}</Badge>
         {table.activeOrders.length > 0 && (
           <div className="text-sm text-muted-foreground">
             {itemCount} món · <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
@@ -97,15 +123,30 @@ export function TableCard({ table, onClick, onOrderForCustomer }: TableCardProps
         )}
       </div>
 
-      {onOrderForCustomer && (
+      {/*
+       * Module 13: bàn "Bàn dọn dẹp" ưu tiên hiện nút xác nhận dọn xong thay
+       * vì "Gọi món hộ" — bàn đang chờ dọn thì chưa có khách để gọi món hộ.
+       */}
+      {table.status === "needs_cleaning" && onMarkCleaned ? (
         <button
           type="button"
-          onClick={handleOrderForCustomerClick}
-          className="mt-auto flex items-center justify-center gap-1.5 rounded-xl border border-border/80 bg-background py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground"
+          onClick={handleMarkCleanedClick}
+          className="mt-auto flex items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-100 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-200"
         >
-          <Smartphone className="h-3.5 w-3.5" />
-          Gọi món hộ
+          <Sparkles className="h-3.5 w-3.5" />
+          Đã dọn xong
         </button>
+      ) : (
+        onOrderForCustomer && (
+          <button
+            type="button"
+            onClick={handleOrderForCustomerClick}
+            className="mt-auto flex items-center justify-center gap-1.5 rounded-xl border border-border/80 bg-background py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground"
+          >
+            <Smartphone className="h-3.5 w-3.5" />
+            Gọi món hộ
+          </button>
+        )
       )}
     </div>
   );

@@ -50,7 +50,8 @@ export function KdsItemCard({ ticket, now, onAdvance, advancing }: KdsItemCardPr
     >
       <div className="flex items-center justify-between">
         <span className="rounded-lg bg-foreground px-2.5 py-1 text-sm font-bold text-background">
-          Bàn {ticket.table_number ?? "?"}
+          {/* Module 13: order.table_id = null nghĩa là đơn ĐẶT MANG ĐI, không phải bàn "?" (lỗi dữ liệu). */}
+          {ticket.table_number ? `Bàn ${ticket.table_number}` : "🛍️ Mang đi"}
         </span>
         <span
           className={cn(

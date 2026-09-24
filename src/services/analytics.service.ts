@@ -26,9 +26,10 @@ import {
 import type { TablesRow, TableStatus } from "@/types/database.types";
 
 const EMPTY_TABLE_STATUS_COUNTS: Record<TableStatus, number> = {
-  empty: 0,
-  ordering: 0,
-  paid: 0,
+  available: 0,
+  occupied: 0,
+  payment_pending: 0,
+  needs_cleaning: 0,
 };
 
 function startOfToday(): Date {

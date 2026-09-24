@@ -4,8 +4,13 @@
  * dùng để typed hoá Supabase client (không dùng `any` ở bất kỳ đâu).
  */
 
-export type TableStatus = "empty" | "ordering" | "paid";
+/** Module 13: 'empty'/'ordering'/'paid' (cũ) đã đổi thành 4 giá trị dưới đây — xem ghi chú migration ở schema.sql. */
+export type TableStatus = "available" | "occupied" | "payment_pending" | "needs_cleaning";
+/** Hình dạng bàn (Module 13) — CHỈ ảnh hưởng hiển thị ở sơ đồ bàn, không ảnh hưởng nghiệp vụ. */
+export type TableShape = "square" | "round" | "rectangle";
 export type OrderStatus = "pending" | "preparing" | "completed" | "cancelled";
+/** Module 13: 'dine_in' (mặc định, hành vi cũ — luôn gắn table_id) hoặc 'takeaway' (mang đi, table_id null). */
+export type OrderType = "dine_in" | "takeaway";
 export type OrderItemStatus = "pending" | "preparing" | "ready" | "served";
 export type StationType = "bar" | "kitchen";
 export type PaymentMethod = "cash" | "transfer";
@@ -23,6 +28,18 @@ export interface TablesRow {
   table_number: number;
   qr_code_url: string | null;
   status: TableStatus;
+  /** Khu vực bàn thuộc về (Tầng 1, Sân vườn...) — null nếu chưa gán, Module 13. */
+  zone_id: string | null;
+  /** Hình dạng bàn — CHỈ ảnh hưởng hiển thị ở sơ đồ bàn (Module 13). */
+  shape: TableShape;
+  created_at: string;
+}
+
+/** 1 khu vực/tầng của quán (Module 13) — dùng để nhóm bàn theo tab ở `/staff/tables`. */
+export interface ZonesRow {
+  id: string;
+  name: string;
+  display_order: number;
   created_at: string;
 }
 
@@ -55,7 +72,8 @@ export interface ItemOptionsRow {
 
 export interface OrdersRow {
   id: string;
-  table_id: string;
+  /** NULLABLE từ Module 13 — null khi order_type = 'takeaway' (đơn mang đi không gắn bàn nào). */
+  table_id: string | null;
   status: OrderStatus;
   total_amount: number;
   payment_method: PaymentMethod | null;
@@ -68,6 +86,14 @@ export interface OrdersRow {
   promotion_id: string | null;
   /** Số tiền đã giảm nhờ khuyến mãi (đã trừ vào total_amount) — lưu riêng để hiển thị/báo cáo, KHÔNG dùng để tính lại total_amount — Module 9. */
   discount_amount: number;
+  /** 'dine_in' (mặc định) hoặc 'takeaway' — Module 13. */
+  order_type: OrderType;
+  /** Giờ hẹn lấy món của đơn mang đi — null nếu khách không chọn giờ cụ thể (lấy sớm nhất có thể) — Module 13. */
+  pickup_time: string | null;
+  /** Tên khách đặt mang đi — null cho đơn dine_in — Module 13. */
+  customer_name: string | null;
+  /** SĐT khách đặt mang đi — null cho đơn dine_in — Module 13. */
+  customer_phone: string | null;
   created_at: string;
 }
 
@@ -288,9 +314,14 @@ export interface Database {
     Tables: {
       tables: TableDefinition<
         TablesRow,
-        Omit<TablesRow, "id" | "created_at" | "status"> &
-          Partial<Pick<TablesRow, "status">>,
+        Omit<TablesRow, "id" | "created_at" | "status" | "zone_id" | "shape"> &
+          Partial<Pick<TablesRow, "status" | "zone_id" | "shape">>,
         Partial<Omit<TablesRow, "id" | "created_at">>
+      >;
+      zones: TableDefinition<
+        ZonesRow,
+        Omit<ZonesRow, "id" | "created_at" | "display_order"> & Partial<Pick<ZonesRow, "display_order">>,
+        Partial<Omit<ZonesRow, "id" | "created_at">>
       >;
       categories: TableDefinition<
         CategoriesRow,
@@ -312,10 +343,35 @@ export interface Database {
         OrdersRow,
         Omit<
           OrdersRow,
-          "id" | "created_at" | "status" | "payment_status" | "customer_id" | "shift_id" | "promotion_id" | "discount_amount"
+          | "id"
+          | "created_at"
+          | "status"
+          | "payment_status"
+          | "customer_id"
+          | "shift_id"
+          | "promotion_id"
+          | "discount_amount"
+          | "table_id"
+          | "order_type"
+          | "pickup_time"
+          | "customer_name"
+          | "customer_phone"
         > &
           Partial<
-            Pick<OrdersRow, "status" | "payment_status" | "customer_id" | "shift_id" | "promotion_id" | "discount_amount">
+            Pick<
+              OrdersRow,
+              | "status"
+              | "payment_status"
+              | "customer_id"
+              | "shift_id"
+              | "promotion_id"
+              | "discount_amount"
+              | "table_id"
+              | "order_type"
+              | "pickup_time"
+              | "customer_name"
+              | "customer_phone"
+            >
           >,
         Partial<Omit<OrdersRow, "id" | "created_at">>
       >;

@@ -11,6 +11,7 @@ import type {
   OrderItemStatus,
   OrderItemsRow,
   OrdersRow,
+  OrderType,
   PaymentMethod,
   PromotionDiscountType,
   PromotionsRow,
@@ -21,9 +22,11 @@ import type {
   StaffCallsRow,
   StationType,
   TablesRow,
+  TableShape,
   TableStatus,
   UserRole,
   VatInvoicesRow,
+  ZonesRow,
 } from "./database.types";
 
 /** Món trong menu kèm danh sách option (topping) của nó — dùng để hiển thị. */
@@ -77,7 +80,13 @@ export interface OrderWithItems extends OrdersRow {
 }
 
 export interface CreateOrderInput {
-  tableId: string;
+  /**
+   * Bắt buộc khi `orderType = 'dine_in'` (khách đang ngồi tại bàn) — KHÔNG
+   * dùng khi `orderType = 'takeaway'` (Module 13): đơn mang đi luôn tạo với
+   * `table_id = null` dù khách đang thao tác từ 1 phiên bàn đã quét QR — xem
+   * quyết định thiết kế ở order.service.createOrder.
+   */
+  tableId?: string | null;
   lines: CartLine[];
   /** Khách hàng thân thiết đã tra cứu/đăng ký ở bước giỏ hàng (Module 5) — có thể null. */
   customerId?: string | null;
@@ -87,6 +96,14 @@ export interface CreateOrderInput {
    * tin tưởng riêng việc client "đã thấy hợp lệ" lúc xem trước.
    */
   promotionId?: string | null;
+  /** 'dine_in' (mặc định) hoặc 'takeaway' — Module 13. */
+  orderType: OrderType;
+  /** Bắt buộc khi `orderType = 'takeaway'` — Module 13. */
+  customerName?: string | null;
+  /** Bắt buộc khi `orderType = 'takeaway'` — Module 13. */
+  customerPhone?: string | null;
+  /** Chuỗi ISO — null nếu khách không chọn giờ cụ thể (lấy sớm nhất có thể) — Module 13. */
+  pickupTime?: string | null;
 }
 
 export interface VatInvoiceInput {
@@ -113,17 +130,19 @@ export const ORDER_ITEM_STATUS_LABEL: Record<OrderItemStatus, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Trạng thái bàn dùng đúng 3 giá trị enum sẵn có của schema, nhưng ở tầng UI
- * nhân viên hiển thị theo đúng ngữ nghĩa vận hành thực tế:
- * empty = Trống, ordering = Đang gọi món, paid = Chờ thanh toán (khách đã yêu
- * cầu thanh toán / nhân viên đang xử lý — KHÔNG phải nghĩa "đã thanh toán
- * xong", việc xác nhận thu tiền xong sẽ đưa bàn thẳng về "empty" để đón khách
- * mới, xem order.service.markOrdersPaid).
+ * Trạng thái bàn (Module 13 — đổi từ 3 giá trị cũ 'empty'/'ordering'/'paid'
+ * sang 4 giá trị dưới đây, xem ghi chú migration ở schema.sql) khớp đúng
+ * vòng đời vận hành thực tế: available = Trống -(khách gửi đơn)-> occupied =
+ * Đang có khách -(khách yêu cầu thanh toán)-> payment_pending = Chờ thanh
+ * toán -(nhân viên xác nhận đã thu tiền, xem order.service.markOrdersPaid)->
+ * needs_cleaning = Cần dọn dẹp -(nhân viên bấm 1 chạm sau khi dọn xong)->
+ * available.
  */
 export const TABLE_STATUS_LABEL: Record<TableStatus, string> = {
-  empty: "Trống",
-  ordering: "Đang gọi món",
-  paid: "Chờ thanh toán",
+  available: "Trống",
+  occupied: "Đang có khách",
+  payment_pending: "Chờ thanh toán",
+  needs_cleaning: "Cần dọn dẹp",
 };
 
 export const STAFF_CALL_LABEL: Record<StaffCallRequestType, string> = {
@@ -441,6 +460,16 @@ export type TelegramNotifyPayload =
       stockQuantity: number;
       unit: string;
       minThreshold: number;
+    }
+  | {
+      /** Đơn mang đi mới (Module 13) — xem services/order.service.ts#createOrder. */
+      type: "new_takeaway_order";
+      customerName: string;
+      customerPhone: string;
+      /** Chuỗi ISO — null nếu khách không chọn giờ cụ thể. */
+      pickupTime: string | null;
+      items: TelegramOrderItemSummary[];
+      totalAmount: number;
     };
 
 // ---------------------------------------------------------------------------
@@ -659,4 +688,30 @@ export interface ExpenseFilters {
 /** Chi phí kèm tên người tạo — dùng để hiển thị ở bảng danh sách (join 1 lần, không cần component tự tra cứu profiles). */
 export interface ExpenseWithCreator extends ExpensesRow {
   createdByName: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Module 13 — Sơ đồ Bàn theo Khu vực (Visual Floor Plan) & Đặt Mang đi
+// ---------------------------------------------------------------------------
+
+export const ORDER_TYPE_LABEL: Record<OrderType, string> = {
+  dine_in: "Ăn tại bàn",
+  takeaway: "Đặt mang đi",
+};
+
+export const TABLE_SHAPE_LABEL: Record<TableShape, string> = {
+  square: "Vuông",
+  round: "Tròn",
+  rectangle: "Chữ nhật (bàn dài)",
+};
+
+/** Input tạo/sửa khu vực ở `/admin/zones` — xem zone.service.ts. */
+export interface ZoneFormInput {
+  name: string;
+  displayOrder: number;
+}
+
+/** Khu vực kèm danh sách bàn thuộc khu vực đó — dùng cho phần xem nhanh ở `/admin/zones`, xem zone.service.ts#getZonesWithTables. */
+export interface ZoneWithTables extends ZonesRow {
+  tables: TablesRow[];
 }

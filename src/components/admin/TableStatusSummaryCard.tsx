@@ -9,14 +9,15 @@ interface TableStatusSummaryCardProps {
 }
 
 const DOT_STYLE: Record<TableStatus, string> = {
-  empty: "bg-muted-foreground/40",
-  ordering: "bg-amber-500",
-  paid: "bg-primary",
+  available: "bg-emerald-500",
+  occupied: "bg-destructive",
+  payment_pending: "bg-amber-500",
+  needs_cleaning: "bg-slate-400",
 };
 
 /** Thẻ tổng quan nhanh: đếm số bàn theo từng trạng thái — chi tiết từng bàn xem ở lưới bên dưới. */
 export function TableStatusSummaryCard({ counts, className }: TableStatusSummaryCardProps) {
-  const total = counts.empty + counts.ordering + counts.paid;
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
 
   return (
     <div className={cn("rounded-2xl border bg-card p-4 shadow-sm", className)}>

@@ -68,6 +68,40 @@ function buildMessageText(body: unknown): string | null {
       ].join("\n");
     }
 
+    case "new_takeaway_order": {
+      if (typeof body.customerName !== "string" || !body.customerName.trim()) return null;
+      if (typeof body.customerPhone !== "string" || !body.customerPhone.trim()) return null;
+      if (!Array.isArray(body.items)) return null;
+
+      const itemLines = body.items
+        .slice(0, MAX_ITEMS_IN_MESSAGE)
+        .map((item: unknown) => {
+          if (!isRecord(item)) return null;
+          const name = typeof item.name === "string" && item.name.trim() ? item.name : "Món";
+          const quantity = typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+          return `• ${quantity}x ${escapeHtml(name.slice(0, MAX_ITEM_NAME_LENGTH))}`;
+        })
+        .filter((line): line is string => line !== null)
+        .join("\n");
+
+      const totalAmount = typeof body.totalAmount === "number" && Number.isFinite(body.totalAmount)
+        ? body.totalAmount
+        : 0;
+
+      const pickupLabel =
+        typeof body.pickupTime === "string" && body.pickupTime
+          ? new Date(body.pickupTime).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })
+          : "Sớm nhất có thể";
+
+      return [
+        `🛍️ <b>Đơn mang đi mới — ${escapeHtml(body.customerName.trim().slice(0, MAX_ITEM_NAME_LENGTH))}</b>`,
+        `SĐT: ${escapeHtml(body.customerPhone.trim().slice(0, 20))}`,
+        `Hẹn lấy lúc: ${pickupLabel}`,
+        itemLines || "(không có món)",
+        `Tổng cộng: ${totalAmount.toLocaleString("vi-VN")}đ`,
+      ].join("\n");
+    }
+
     case "staff_call": {
       if (!isValidTableNumber(body.tableNumber) || !isValidStaffCallRequestType(body.requestType)) return null;
       return `🙋 <b>Bàn ${body.tableNumber}</b>: ${escapeHtml(STAFF_CALL_LABEL[body.requestType])}`;

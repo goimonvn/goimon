@@ -20,7 +20,7 @@ import { checkAndDeductInventoryForOrderItem } from "./inventory.service";
 import { awardLoyaltyPoints } from "./loyalty.service";
 import { redeemPromotion, releasePromotionUsage } from "./promotion.service";
 import { getActiveShiftForCurrentStaff } from "./shift.service";
-import { notifyNewOrderTelegram } from "./telegram.service";
+import { notifyNewOrderTelegram, notifyNewTakeawayOrderTelegram } from "./telegram.service";
 import { updateTableStatus } from "./table.service";
 
 const MENU_ITEM_EMBED = "id, name, image_url, price" as const;
@@ -59,12 +59,28 @@ async function releasePromotionUsageSafely(promotionId: string): Promise<void> {
  * dự án. Nếu redeem thành công nhưng bước insert order/order_items sau đó lại
  * lỗi, hoàn lại lượt dùng vừa redeem (`releasePromotionUsage`) để không lãng
  * phí lượt của khách cho một đơn không thành.
+ *
+ * ĐẶT MANG ĐI (Module 13): khi `input.orderType === 'takeaway'`, đơn LUÔN được
+ * tạo với `table_id = null` — kể cả khi khách đang thao tác từ 1 phiên bàn đã
+ * quét QR (TableContext vẫn giữ nguyên bàn đó cho các lần gọi món tiếp theo
+ * trong phiên, chỉ riêng đơn "mang đi" này là độc lập, không gắn với bàn nào).
+ * Đây là quyết định thiết kế có chủ đích để không phải mở thêm 1 điểm vào
+ * (entry point) không qua bàn, tránh đụng tới kiến trúc TableContext/TableGate
+ * đang ổn định. Vì vậy đơn takeaway sẽ KHÔNG chuyển trạng thái bàn (không có
+ * bàn để chuyển) và KHÔNG xuất hiện ở `/order/status` (trang đó lọc theo
+ * table.id) — xác nhận đơn mang đi được hiển thị ngay tại trang giỏ hàng.
  */
 export async function createOrder(
   input: CreateOrderInput
 ): Promise<{ order: OrderWithItems; discountApplied: boolean }> {
   if (input.lines.length === 0) {
     throw new AppError("Giỏ hàng đang trống, vui lòng chọn món trước khi gửi.");
+  }
+  if (input.orderType === "takeaway" && (!input.customerName?.trim() || !input.customerPhone?.trim())) {
+    throw new AppError("Vui lòng nhập tên và số điện thoại cho đơn mang đi.");
+  }
+  if (input.orderType === "dine_in" && !input.tableId) {
+    throw new AppError("Không xác định được bàn cho đơn ăn tại chỗ.");
   }
 
   const subtotal = input.lines.reduce((sum, line) => sum + line.lineTotal, 0);
@@ -82,15 +98,21 @@ export async function createOrder(
   const discountApplied = promotionId !== null;
   const totalAmount = subtotal - discountAmount;
 
+  const isTakeaway = input.orderType === "takeaway";
+
   const { data: rawOrder, error: orderError } = await supabase
     .from("orders")
     .insert({
-      table_id: input.tableId,
+      table_id: isTakeaway ? null : input.tableId,
       total_amount: totalAmount,
       payment_method: null,
       customer_id: input.customerId ?? null,
       promotion_id: promotionId,
       discount_amount: discountAmount,
+      order_type: input.orderType,
+      pickup_time: isTakeaway ? input.pickupTime ?? null : null,
+      customer_name: isTakeaway ? input.customerName ?? null : null,
+      customer_phone: isTakeaway ? input.customerPhone ?? null : null,
     })
     // Kèm luôn table_number trong CÙNG round-trip (không query thêm) — chỉ
     // dùng để bắn thông báo Telegram bên dưới (Module 7), không phải dữ liệu
@@ -131,21 +153,29 @@ export async function createOrder(
     throw new AppError("Không thể lưu các món trong đơn. Vui lòng thử lại.", orderItemsError);
   }
 
-  // Bàn chuyển sang trạng thái "đang gọi món" — không chặn luồng chính nếu lỗi nhẹ.
-  try {
-    await updateTableStatus(input.tableId, "ordering");
-  } catch {
-    // Bỏ qua: trạng thái bàn không ảnh hưởng tới việc đơn đã được ghi nhận thành công.
+  // Bàn chuyển sang trạng thái "đang có khách" — không áp dụng cho đơn takeaway
+  // (không có bàn nào để chuyển, xem JSDoc hàm này). Không chặn luồng chính nếu lỗi nhẹ.
+  if (!isTakeaway && input.tableId) {
+    try {
+      await updateTableStatus(input.tableId, "occupied");
+    } catch {
+      // Bỏ qua: trạng thái bàn không ảnh hưởng tới việc đơn đã được ghi nhận thành công.
+    }
   }
 
-  // Báo quán qua Telegram (Module 7) — fire-and-forget, không await, không
-  // bao giờ ảnh hưởng tới việc đơn đã được tạo thành công (xem telegram.service.ts).
-  if (table?.table_number) {
-    notifyNewOrderTelegram(
-      table.table_number,
-      input.lines.map((line) => ({ name: line.menuItem.name, quantity: line.quantity })),
+  // Báo quán qua Telegram (Module 7 / Module 13) — fire-and-forget, không await,
+  // không bao giờ ảnh hưởng tới việc đơn đã được tạo thành công (xem telegram.service.ts).
+  const telegramItems = input.lines.map((line) => ({ name: line.menuItem.name, quantity: line.quantity }));
+  if (isTakeaway) {
+    notifyNewTakeawayOrderTelegram(
+      input.customerName ?? "",
+      input.customerPhone ?? "",
+      input.pickupTime ?? null,
+      telegramItems,
       subtotal
     );
+  } else if (table?.table_number) {
+    notifyNewOrderTelegram(table.table_number, telegramItems, subtotal);
   }
 
   return {
@@ -321,7 +351,8 @@ export async function setOrderPaymentMethod(
 /**
  * Nhân viên xác nhận đã thu tiền cho toàn bộ đơn đang hoạt động của một bàn:
  * đánh dấu payment_status = 'paid', status = 'completed' cho các đơn đó, rồi
- * trả bàn về 'empty' để sẵn sàng đón khách mới.
+ * chuyển bàn sang 'needs_cleaning' (Module 13) — nhân viên bấm 1 chạm ở
+ * `/staff/tables` để xác nhận đã dọn xong, lúc đó bàn mới thực sự về 'available'.
  *
  * GẮN CA LÀM VIỆC (Module 8): nếu nhân viên đang có ca mở, `shift_id` của các
  * đơn này được set NGAY TRONG CÙNG câu UPDATE ở trên (policy "Staff confirm
@@ -371,7 +402,9 @@ export async function markOrdersPaid(
     throw new AppError("Không thể xác nhận thanh toán. Vui lòng thử lại.", error);
   }
 
-  await updateTableStatus(tableId, "empty");
+  // Module 13: bàn không về "trống" ngay — chuyển "Bàn dọn dẹp" trước, nhân
+  // viên bấm 1 chạm ở `/staff/tables` để xác nhận đã dọn xong rồi mới về "trống".
+  await updateTableStatus(tableId, "needs_cleaning");
 
   // Xem ghi chú ở fetchActiveOrdersWithItems() về việc ép kiểu tường minh cho
   // kết quả .select() với danh sách cột tuỳ chọn (Database type viết tay

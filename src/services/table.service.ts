@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { AppError } from "@/types";
-import type { TableStatus, TablesRow } from "@/types/database.types";
+import type { TableShape, TableStatus, TablesRow } from "@/types/database.types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 /**
@@ -59,6 +59,30 @@ export async function updateTableStatus(
 
   if (error) {
     throw new AppError("Không thể cập nhật trạng thái bàn.", error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Module 13 — Sơ đồ Bàn theo Khu vực. Gán khu vực/hình dạng dùng ở `/admin/zones`
+// (phần "Gán khu vực & hình dạng cho từng bàn"); đổi trạng thái nhanh dùng ở
+// `/staff/tables` (nhân viên bấm 1 chạm "Bàn dọn dẹp" -> "Bàn trống").
+// ---------------------------------------------------------------------------
+
+/** Gán/gỡ khu vực cho 1 bàn — truyền `null` để gỡ (bàn không thuộc khu vực nào). */
+export async function assignTableZone(tableId: string, zoneId: string | null): Promise<void> {
+  const { error } = await supabase.from("tables").update({ zone_id: zoneId }).eq("id", tableId);
+
+  if (error) {
+    throw new AppError("Không thể gán khu vực cho bàn.", error);
+  }
+}
+
+/** Đổi hình dạng hiển thị của 1 bàn (vuông/tròn/chữ nhật) — chỉ ảnh hưởng UI sơ đồ bàn, không ảnh hưởng nghiệp vụ. */
+export async function updateTableShape(tableId: string, shape: TableShape): Promise<void> {
+  const { error } = await supabase.from("tables").update({ shape }).eq("id", tableId);
+
+  if (error) {
+    throw new AppError("Không thể cập nhật hình dạng bàn.", error);
   }
 }
 

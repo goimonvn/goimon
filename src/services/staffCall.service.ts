@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase/client";
 import { AppError, type StaffCallWithTable } from "@/types";
 import type { StaffCallRequestType, StaffCallsRow } from "@/types/database.types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { updateTableStatus } from "./table.service";
 import { notifyStaffCallTelegram } from "./telegram.service";
 
 /**
@@ -26,6 +27,19 @@ export async function createStaffCall(
 
   if (error) {
     throw new AppError("Không thể gửi yêu cầu tới nhân viên. Vui lòng thử lại.", error);
+  }
+
+  // Module 13: khách bấm "Yêu cầu thanh toán" -> bàn chuyển sang trạng thái
+  // "Chờ thanh toán" (payment_pending) để nhân viên thấy ngay trên sơ đồ bàn
+  // mà không cần mở chi tiết bàn ra xem. Best-effort — không chặn việc gửi
+  // yêu cầu nếu bước đổi trạng thái bàn lỗi (cùng tinh thần với updateTableStatus
+  // ở order.service.ts#createOrder).
+  if (requestType === "checkout") {
+    try {
+      await updateTableStatus(tableId, "payment_pending");
+    } catch {
+      // Bỏ qua: trạng thái bàn không ảnh hưởng tới việc yêu cầu đã được ghi nhận thành công.
+    }
   }
 
   notifyStaffCallTelegram(tableNumber, requestType);

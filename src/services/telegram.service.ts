@@ -29,6 +29,28 @@ export function notifyNewOrderTelegram(
   postTelegramNotification({ type: "new_order", tableNumber, items, totalAmount });
 }
 
+/**
+ * Báo quán có đơn ĐẶT MANG ĐI mới (Module 13) — kèm tên/SĐT khách và giờ hẹn
+ * lấy để quán chủ động chuẩn bị, khác với `notifyNewOrderTelegram` (đơn ăn tại
+ * bàn) vì không có số bàn mà thay bằng thông tin liên hệ của khách.
+ */
+export function notifyNewTakeawayOrderTelegram(
+  customerName: string,
+  customerPhone: string,
+  pickupTime: string | null,
+  items: TelegramOrderItemSummary[],
+  totalAmount: number
+): void {
+  postTelegramNotification({
+    type: "new_takeaway_order",
+    customerName,
+    customerPhone,
+    pickupTime,
+    items,
+    totalAmount,
+  });
+}
+
 /** Báo quán khách vừa gọi nhân viên / xin đá / yêu cầu thanh toán ở 1 bàn. */
 export function notifyStaffCallTelegram(tableNumber: number, requestType: StaffCallRequestType): void {
   postTelegramNotification({ type: "staff_call", tableNumber, requestType });

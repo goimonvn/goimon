@@ -1100,5 +1100,125 @@ create policy "Admin delete expenses" on expenses for delete
 --      lại mỗi sáng trừ khi chủ quán chủ động tắt cho món đặc biệt) ----
 alter table menu_items add column if not exists auto_reset_daily boolean not null default true;
 
+-- ============================================================================
+-- Module 13 — Sơ đồ Bàn theo Khu vực (Visual Floor Plan) & Đặt Mang đi
+-- (Visual Floor Plan & Zones + Takeaway Orders)
+--
+-- 2 phần độc lập:
+--   (A) `zones` + `tables.zone_id`/`tables.shape` — nhóm 15 bàn theo khu vực
+--       thực tế của quán (Tầng 1, Tầng 2, Sân vườn...) để `/staff/tables`
+--       hiển thị dạng tab theo khu vực thay vì 1 lưới phẳng, kèm mã màu
+--       trạng thái trực quan hơn (xem phần đổi enum bên dưới).
+--   (B) `orders.order_type`/`pickup_time`/`customer_name`/`customer_phone` +
+--       `table_id` chuyển sang NULLABLE — cho phép tạo đơn "mang đi" không
+--       gắn với bàn nào, mở rộng kênh bán ngoài phục vụ khách ngồi tại bàn.
+--
+-- ĐỔI ENUM TRẠNG THÁI BÀN (thay đổi LỚN NHẤT của module này): 3 giá trị cũ
+-- ('empty'/'ordering'/'paid', Module 2) -> 4 giá trị mới
+-- ('available'/'occupied'/'payment_pending'/'needs_cleaning') để khớp đúng
+-- vòng đời vận hành thực tế: thêm bước "cần dọn dẹp" sau khi thu tiền thay vì
+-- coi bàn trống ngay lập tức. Ánh xạ giá trị cũ -> mới:
+--   empty -> available, ordering -> occupied, paid -> payment_pending.
+-- Vòng đời mới đầy đủ: available -(khách gửi đơn)-> occupied
+--   -(khách yêu cầu thanh toán, staff_calls type 'checkout')-> payment_pending
+--   -(nhân viên xác nhận đã thu tiền, markOrdersPaid)-> needs_cleaning
+--   -(nhân viên bấm 1 chạm sau khi dọn xong)-> available.
+-- Toàn bộ điểm code gọi updateTableStatus() đã cập nhật theo enum mới (xem
+-- services/order.service.ts, services/staffCall.service.ts).
+-- ============================================================================
+
+create table if not exists zones (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  display_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table zones enable row level security;
+
+-- ---- zones: đọc công khai (giống categories — chỉ là tên khu vực, không
+--      nhạy cảm); CRUD chỉ chủ quán, quản lý ở /admin/zones. ----
+drop policy if exists "Public read zones" on zones;
+create policy "Public read zones" on zones for select using (true);
+
+drop policy if exists "Admin insert zones" on zones;
+create policy "Admin insert zones" on zones for insert
+  to authenticated
+  with check (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin update zones" on zones;
+create policy "Admin update zones" on zones for update
+  to authenticated
+  using (public.current_user_role() = 'admin')
+  with check (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin delete zones" on zones;
+create policy "Admin delete zones" on zones for delete
+  to authenticated
+  using (public.current_user_role() = 'admin');
+
+-- ---- tables: thêm zone_id (khu vực, NULLABLE — bàn chưa gán khu vực vẫn
+--      hiển thị bình thường ở tab "Tất cả") + shape (hình dạng bàn, CHỈ ảnh
+--      hưởng hiển thị, không ảnh hưởng nghiệp vụ). `on delete set null`: xoá
+--      1 khu vực KHÔNG xoá theo các bàn thuộc khu vực đó, chỉ gỡ gán (bàn trở
+--      về "chưa gán khu vực"). ----
+alter table tables add column if not exists zone_id uuid references zones (id) on delete set null;
+alter table tables add column if not exists shape text not null default 'square';
+
+alter table tables drop constraint if exists tables_shape_check;
+alter table tables add constraint tables_shape_check
+  check (shape in ('square', 'round', 'rectangle'));
+
+-- Gỡ CHECK constraint CŨ (chỉ cho phép 'empty'/'ordering'/'paid') TRƯỚC khi
+-- migrate dữ liệu — nếu update dữ liệu trước khi gỡ constraint cũ, chính các
+-- câu update bên dưới (gán giá trị 'available'/'payment_pending' MỚI) sẽ vi
+-- phạm ràng buộc CŨ đang còn hiệu lực và tự lỗi ngay tại bước update. An toàn
+-- để chạy lại nhiều lần: "drop if exists" không lỗi khi constraint đã được gỡ
+-- từ lần chạy trước, và mỗi dòng update chỉ khớp đúng giá trị CŨ nên không
+-- còn tác dụng sau lần chạy đầu tiên.
+alter table tables drop constraint if exists tables_status_check;
+
+update tables set status = 'available' where status = 'empty';
+update tables set status = 'occupied' where status = 'ordering';
+update tables set status = 'payment_pending' where status = 'paid';
+
+alter table tables add constraint tables_status_check
+  check (status in ('available', 'occupied', 'payment_pending', 'needs_cleaning'));
+alter table tables alter column status set default 'available';
+
+-- ---- tables: khách (anon) được set 'occupied' khi gửi đơn tại bàn VÀ
+--      'payment_pending' khi yêu cầu thanh toán (staff_calls type
+--      'checkout', xem staffCall.service.createStaffCall) — MỌI trạng thái
+--      khác (đặc biệt 'available'/'needs_cleaning', chỉ nhân viên mới được
+--      set) chỉ nhân viên/chủ quán mới được phép qua policy "Staff update
+--      tables" (Module 2, không đổi). Thay thế policy "Anon set table
+--      ordering" (Module 2, chỉ cho phép mỗi 'ordering'). ----
+drop policy if exists "Anon set table ordering" on tables;
+drop policy if exists "Anon set table status" on tables;
+create policy "Anon set table status" on tables for update
+  using (true)
+  with check (status in ('occupied', 'payment_pending'));
+
+-- ---- orders: hỗ trợ đơn "mang đi" (order_type = 'takeaway') KHÔNG gắn bàn
+--      nào (table_id null) — khác đơn "tại bàn" (order_type = 'dine_in',
+--      mặc định, GIỮ NGUYÊN hành vi cũ) luôn bắt buộc có table_id. ----
+alter table orders add column if not exists order_type text not null default 'dine_in';
+alter table orders add column if not exists pickup_time timestamptz;
+alter table orders add column if not exists customer_name text;
+alter table orders add column if not exists customer_phone text;
+
+alter table orders drop constraint if exists orders_order_type_check;
+alter table orders add constraint orders_order_type_check
+  check (order_type in ('dine_in', 'takeaway'));
+
+alter table orders alter column table_id drop not null;
+
+-- Ràng buộc toàn vẹn: đơn "tại bàn" LUÔN phải có bàn; đơn "mang đi" thì
+-- không bắt buộc — đảm bảo ở tầng database thay vì chỉ tin tưởng client gửi
+-- đúng (xem order.service.createOrder).
+alter table orders drop constraint if exists orders_table_id_required_check;
+alter table orders add constraint orders_table_id_required_check
+  check ((order_type = 'dine_in' and table_id is not null) or (order_type = 'takeaway'));
+
 -- Bật Realtime (Supabase Dashboard > Database > Replication), hoặc chạy:
--- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses;
+-- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses, zones;

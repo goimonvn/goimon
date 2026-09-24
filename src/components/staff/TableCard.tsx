@@ -85,7 +85,7 @@ export function TableCard({ table, onClick, onOrderForCustomer, onMarkCleaned }:
       onClick={onClick}
       onKeyDown={handleKeyDown}
       className={cn(
-        "relative flex flex-col gap-2 rounded-2xl border-2 p-4 text-left shadow-sm transition-transform active:scale-[0.97]",
+        "relative flex h-full flex-col gap-2 rounded-2xl border-2 p-4 text-left shadow-sm transition-transform active:scale-[0.97]",
         STATUS_STYLE[table.status]
       )}
     >

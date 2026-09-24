@@ -67,27 +67,41 @@ export function TableCard({ table, onClick, onOrderForCustomer }: TableCardProps
           <Bell className="h-3.5 w-3.5" />
         </span>
       )}
-      <span className="text-2xl font-bold">Bàn {table.table_number}</span>
-      <Badge
-        variant={table.status === "empty" ? "outline" : table.status === "ordering" ? "warning" : "success"}
-      >
-        {TABLE_STATUS_LABEL[table.status]}
-      </Badge>
-      {table.activeOrders.length > 0 && (
-        <div className="mt-1 text-sm text-muted-foreground">
-          {itemCount} món · <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
-        </div>
-      )}
-      {hasPendingCall && (
-        <p className="text-xs font-medium text-destructive">
-          {table.pendingStaffCalls.length} yêu cầu đang chờ
-        </p>
-      )}
+
+      {/*
+       * Nhóm riêng phần nội dung phía trên (tên bàn/trạng thái/đơn/cảnh báo)
+       * khỏi nút "Gọi món hộ" — các bàn có nội dung dài/ngắn khác nhau (vd bàn
+       * đang có đơn + cảnh báo vs bàn trống) nên nếu để nút trôi theo flow
+       * bình thường, nó sẽ nằm ở độ cao KHÁC NHAU giữa các thẻ cùng hàng (thẻ
+       * lưới luôn cao bằng nhau do CSS Grid tự giãn theo mặc định), nhìn lệch
+       * hàng rất xấu. Tách nhóm nội dung riêng + `mt-auto` ở nút đẩy nó xuống
+       * SÁT ĐÁY mọi thẻ, để hàng nút luôn thẳng hàng bất kể bàn nào có nhiều
+       * nội dung hơn.
+       */}
+      <div className="flex flex-col gap-2">
+        <span className="text-2xl font-bold">Bàn {table.table_number}</span>
+        <Badge
+          variant={table.status === "empty" ? "outline" : table.status === "ordering" ? "warning" : "success"}
+        >
+          {TABLE_STATUS_LABEL[table.status]}
+        </Badge>
+        {table.activeOrders.length > 0 && (
+          <div className="text-sm text-muted-foreground">
+            {itemCount} món · <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
+          </div>
+        )}
+        {hasPendingCall && (
+          <p className="text-xs font-medium text-destructive">
+            {table.pendingStaffCalls.length} yêu cầu đang chờ
+          </p>
+        )}
+      </div>
+
       {onOrderForCustomer && (
         <button
           type="button"
           onClick={handleOrderForCustomerClick}
-          className="mt-1 flex items-center justify-center gap-1.5 rounded-xl border bg-background py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="mt-auto flex items-center justify-center gap-1.5 rounded-xl border border-border/80 bg-background py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground"
         >
           <Smartphone className="h-3.5 w-3.5" />
           Gọi món hộ

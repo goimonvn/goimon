@@ -165,11 +165,20 @@ async function handleReport(): Promise<NextResponse> {
     });
 
     if (!telegramResponse.ok) {
-      return NextResponse.json({ error: "telegram_api_error" }, { status: 502 });
+      // Trả nguyên văn lỗi Telegram trả về (vd "chat not found", "bot was
+      // blocked by the user", "Bad Request: chat_id is empty"...) để tự
+      // debug được ngay qua curl thay vì chỉ thấy chung chung
+      // "telegram_api_error" — an toàn vì body lỗi của Telegram không bao
+      // giờ chứa lại token của chính nó.
+      const detail = await telegramResponse.text();
+      return NextResponse.json({ error: "telegram_api_error", detail }, { status: 502 });
     }
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "network_error" }, { status: 502 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "network_error", message: error instanceof Error ? error.message : "unknown_error" },
+      { status: 502 }
+    );
   }
 }
 

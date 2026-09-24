@@ -277,7 +277,12 @@ function buildWeekdayTrend(ordersInRange: OrderAggRow[]): WeekdayRevenuePoint[] 
   const totals = new Array(7).fill(0) as number[];
   for (const order of ordersInRange) {
     if (order.payment_status !== "paid") continue;
-    totals[mondayFirstWeekdayIndex(new Date(order.created_at))] += order.total_amount;
+    // `totals[idx] += ...` không dùng được vì `noUncheckedIndexedAccess` gõ
+    // vế đọc `totals[idx]` ra `number | undefined` (không cộng được thẳng) —
+    // viết lại thành đọc (kèm `?? 0`) rồi gán riêng, thực tế `idx` luôn nằm
+    // trong khoảng 0-6 khớp đúng 7 phần tử của `totals`.
+    const idx = mondayFirstWeekdayIndex(new Date(order.created_at));
+    totals[idx] = (totals[idx] ?? 0) + order.total_amount;
   }
   // `WEEKDAY_LABELS[weekdayIndex]` gõ ra `string | undefined` vì
   // `noUncheckedIndexedAccess` (weekdayIndex là `number` thường, không phải

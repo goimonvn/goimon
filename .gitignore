@@ -4,6 +4,13 @@ out
 build
 .env.local
 .env*.local
+env*.txt
+*.bak
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# Chỉ giữ lại đúng 1 file mẫu env không chứa giá trị thật — không track thêm
+# bất kỳ file .env*/env*.txt nào khác được tạo thủ công trong lúc thao tác
+# (đã có lần bị lộ secret_role key thật ra git vì lỡ tạo 1 file như vậy).
+!.env.local.example

@@ -118,6 +118,49 @@ export interface CheckoutInput {
   paymentMethod: PaymentMethod;
 }
 
+// ---------------------------------------------------------------------------
+// Module 15 — Tự động xác nhận Thanh toán VietQR qua Webhook PayOS
+// ---------------------------------------------------------------------------
+
+/** Body gửi lên `POST /api/payments/payos/create-link` — chỉ cần đúng 1 đơn "neo" của bàn, số tiền/danh sách món do SERVER tự tính lại (không tin số client gửi). */
+export interface CreatePaymentLinkRequest {
+  orderId: string;
+}
+
+/** Kết quả tạo link thành công — trả về đủ để client dựng ảnh QR + link dự phòng, không trả nguyên response PayOS (tránh rò rỉ field không cần thiết). */
+export interface CreatePaymentLinkResult {
+  orderCode: number;
+  amount: number;
+  qrImageUrl: string;
+  checkoutUrl: string;
+}
+
+/**
+ * Phần `data` trong payload webhook PayOS gửi tới `/api/webhooks/payos` —
+ * CHỈ liệt kê các trường thực sự dùng tới (PayOS gửi kèm nhiều trường khác
+ * như accountNumber/reference/transactionDateTime..., không cần model hết).
+ * Toàn bộ object này (giữ NGUYÊN cấu trúc, không thêm/bớt field khi verify)
+ * được dùng để tính lại chữ ký — xem payos.service.verifyWebhookSignature.
+ */
+export interface PayOSWebhookData {
+  orderCode: number;
+  amount: number;
+  description: string;
+  paymentLinkId: string;
+  code: string;
+  desc: string;
+  [key: string]: unknown;
+}
+
+/** Toàn bộ payload webhook PayOS gửi lên — `data` là `null` cho các lượt PayOS tự gọi thử/ping lúc cấu hình webhook URL. */
+export interface PayOSWebhookBody {
+  code: string;
+  desc: string;
+  success: boolean;
+  data: PayOSWebhookData | null;
+  signature: string;
+}
+
 export const ORDER_ITEM_STATUS_LABEL: Record<OrderItemStatus, string> = {
   pending: "Chờ xử lý",
   preparing: "Đang làm",

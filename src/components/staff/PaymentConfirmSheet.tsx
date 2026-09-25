@@ -37,6 +37,12 @@ export function PaymentConfirmSheet({ table, onOpenChange, onConfirmed }: Paymen
 
   const total = table?.activeOrders.reduce((sum, o) => sum + o.total_amount, 0) ?? 0;
   const qrUrl = table ? buildVietQrUrl(total, `BAN ${table.table_number}`) : null;
+  // Module 15: có đơn nào của bàn đang chờ khách quét mã VietQR tự động qua
+  // PayOS không (payment_order_code đã set nhưng chưa payment_status='paid')
+  // — báo cho nhân viên biết TRƯỚC khi bấm "Xác nhận đã thu tiền" bằng tiền
+  // mặt, tránh thu trùng nếu khách vừa quét mã xong đúng lúc nhân viên thao
+  // tác (2 luồng độc lập, không tự chặn nhau).
+  const hasPendingPayosLink = table?.activeOrders.some((o) => o.payment_order_code !== null) ?? false;
 
   async function handleConfirm() {
     if (!table) return;
@@ -78,6 +84,13 @@ export function PaymentConfirmSheet({ table, onOpenChange, onConfirmed }: Paymen
             <div className="space-y-4 p-4">
               <p className="text-center text-2xl font-bold text-primary">{formatCurrency(total)}</p>
 
+              {hasPendingPayosLink && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-center text-xs font-medium text-amber-800">
+                  ⏳ Khách đang có mã VietQR tự động (PayOS) chờ quét — màn hình sẽ tự cập nhật nếu
+                  khách thanh toán xong, không cần xác nhận tay nữa.
+                </p>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -91,9 +104,9 @@ export function PaymentConfirmSheet({ table, onOpenChange, onConfirmed }: Paymen
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMethod("transfer")}
+                  onClick={() => setMethod("vietqr")}
                   className={`flex flex-col items-center gap-2 rounded-xl border p-4 ${
-                    method === "transfer" ? "border-primary bg-primary/5" : ""
+                    method === "vietqr" ? "border-primary bg-primary/5" : ""
                   }`}
                 >
                   <QrCode className="h-6 w-6" />
@@ -101,7 +114,7 @@ export function PaymentConfirmSheet({ table, onOpenChange, onConfirmed }: Paymen
                 </button>
               </div>
 
-              {method === "transfer" &&
+              {method === "vietqr" &&
                 (qrUrl ? (
                   <div className="flex flex-col items-center gap-2 rounded-xl border p-4">
                     <Image src={qrUrl} alt="Mã VietQR thanh toán" width={220} height={220} unoptimized />

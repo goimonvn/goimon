@@ -13,8 +13,10 @@ export type OrderStatus = "pending" | "preparing" | "completed" | "cancelled";
 export type OrderType = "dine_in" | "takeaway";
 export type OrderItemStatus = "pending" | "preparing" | "ready" | "served";
 export type StationType = "bar" | "kitchen";
-export type PaymentMethod = "cash" | "transfer";
-export type PaymentStatus = "unpaid" | "paid";
+/** Module 15: 'transfer' (cũ) đã đổi tên thành 'vietqr' — dùng chung cho cả chuyển khoản do nhân viên tự xác nhận LẪN thanh toán tự động qua PayOS (phân biệt bằng payment_order_code khác null hay không, xem ghi chú migration ở schema.sql). */
+export type PaymentMethod = "cash" | "vietqr";
+/** Module 15: thêm 'failed' (PayOS báo giao dịch lỗi) và 'refunded' (dự phòng, chưa có luồng hoàn tiền tự động) — 'unpaid'/'paid' giữ nguyên hành vi cũ. */
+export type PaymentStatus = "unpaid" | "paid" | "failed" | "refunded";
 export type StaffCallRequestType = "call_staff" | "need_ice" | "checkout";
 export type StaffCallStatus = "pending" | "resolved";
 export type UserRole = "admin" | "staff";
@@ -78,6 +80,12 @@ export interface OrdersRow {
   total_amount: number;
   payment_method: PaymentMethod | null;
   payment_status: PaymentStatus;
+  /** Mã đơn duy nhất đã gửi PayOS lúc tạo link VietQR động — chỉ đơn "neo" của bàn giữ giá trị này (Module 15). Null nếu đơn chưa từng tạo link PayOS. */
+  payment_order_code: number | null;
+  /** paymentLinkId PayOS trả về lúc tạo link — dùng để tra cứu/đối chiếu, null nếu chưa tạo link (Module 15). */
+  payment_link_id: string | null;
+  /** Thời điểm PayOS xác nhận đã nhận tiền — null nếu chưa thanh toán qua PayOS (Module 15). KHÔNG dùng cho thanh toán tiền mặt/chuyển khoản thủ công (2 cách đó không set cột này). */
+  paid_at: string | null;
   /** Khách hàng thân thiết gắn với đơn (null nếu khách không nhập SĐT lúc gửi đơn) — Module 5. */
   customer_id: string | null;
   /** Ca làm việc của nhân viên thu ngân đang trực lúc xác nhận thanh toán (null nếu chưa "Bắt đầu ca") — Module 8. */
@@ -236,6 +244,15 @@ export interface CloseShiftResultRow extends ShiftsRow {
   order_count: number;
 }
 
+/** 1 dòng / 1 đơn vừa được RPC `confirm_payos_payment` chốt thanh toán (Module 15) — webhook dùng để cộng điểm thưởng + dựng nội dung Telegram, xem ghi chú đầy đủ ở schema.sql. */
+export interface ConfirmPayosPaymentResultRow {
+  order_id: string;
+  table_id: string;
+  table_number: number;
+  customer_id: string | null;
+  total_amount: number;
+}
+
 /**
  * Một khuyến mãi/mã giảm giá (Module 9). `code` là `null` cho khuyến mãi TỰ
  * ĐỘNG áp dụng (Happy Hour, `requires_code = false`) — xem ghi chú chi tiết
@@ -355,6 +372,9 @@ export interface Database {
           | "created_at"
           | "status"
           | "payment_status"
+          | "payment_order_code"
+          | "payment_link_id"
+          | "paid_at"
           | "customer_id"
           | "shift_id"
           | "promotion_id"
@@ -370,6 +390,9 @@ export interface Database {
               OrdersRow,
               | "status"
               | "payment_status"
+              | "payment_order_code"
+              | "payment_link_id"
+              | "paid_at"
               | "customer_id"
               | "shift_id"
               | "promotion_id"
@@ -541,6 +564,12 @@ export interface Database {
           p_promotion_id: string;
         };
         Returns: void;
+      };
+      confirm_payos_payment: {
+        Args: {
+          p_order_code: number;
+        };
+        Returns: ConfirmPayosPaymentResultRow[];
       };
     };
     Enums: Record<string, never>;

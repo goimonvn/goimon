@@ -83,7 +83,9 @@ async function buildDailyReportMessage(): Promise<string> {
   const completedCount = orders.filter((o) => o.status === "completed").length;
 
   const cashCount = paidOrders.filter((o) => o.payment_method === "cash").length;
-  const transferCount = paidOrders.filter((o) => o.payment_method === "transfer").length;
+  // Module 15: 'transfer' đã đổi tên thành 'vietqr' (gộp cả chuyển khoản thủ
+  // công lẫn tự động qua PayOS) — xem ghi chú migration ở schema.sql.
+  const transferCount = paidOrders.filter((o) => o.payment_method === "vietqr").length;
   const paymentCountedTotal = cashCount + transferCount;
   const cashPct = paymentCountedTotal > 0 ? Math.round((cashCount / paymentCountedTotal) * 100) : 0;
   const transferPct = paymentCountedTotal > 0 ? 100 - cashPct : 0;

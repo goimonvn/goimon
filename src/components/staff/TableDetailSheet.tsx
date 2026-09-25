@@ -125,8 +125,19 @@ export function TableDetailSheet({
             <div className="space-y-3">
               {table.activeOrders.map((order) => (
                 <div key={order.id} className="rounded-xl border p-3">
-                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                     Đơn #{order.id.slice(0, 8).toUpperCase()}
+                    {/* Module 15: đơn đang chờ khách quét mã VietQR tự động (PayOS), hoặc lần quét gần nhất thất bại. */}
+                    {order.payment_order_code !== null && order.payment_status === "unpaid" && (
+                      <Badge variant="warning" className="shrink-0">
+                        ⏳ Chờ VietQR tự động
+                      </Badge>
+                    )}
+                    {order.payment_status === "failed" && (
+                      <Badge variant="destructive" className="shrink-0">
+                        ⚠️ VietQR thất bại
+                      </Badge>
+                    )}
                   </p>
                   <ul className="space-y-1.5">
                     {order.order_items.map((item) => (

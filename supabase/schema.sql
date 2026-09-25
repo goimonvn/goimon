@@ -1322,3 +1322,189 @@ alter table orders add constraint orders_table_id_required_check
 
 -- Bật Realtime (Supabase Dashboard > Database > Replication), hoặc chạy:
 -- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses, zones;
+
+-- ============================================================================
+-- Module 15 — Tự động xác nhận Thanh toán VietQR qua Webhook PayOS
+--            (Realtime Automated Payment)
+--
+-- Trước Module này: khách chọn "Chuyển khoản" ở CheckoutSheet chỉ hiện 1 mã
+-- VietQR TĨNH (ảnh dựng từ NEXT_PUBLIC_VIETQR_*) — khách chuyển khoản xong
+-- vẫn phải BẤM "Yêu cầu thanh toán" để gọi nhân viên ra xác nhận bằng mắt
+-- (PaymentConfirmSheet, markOrdersPaid). Module 15 thêm 1 đường THỨ 2, TỰ
+-- ĐỘNG: PayOS tạo 1 mã VietQR ĐỘNG gắn đúng số tiền + mã đơn duy nhất, và khi
+-- PayOS xác nhận tiền đã vào tài khoản (gọi webhook), hệ thống TỰ đánh dấu đã
+-- thanh toán — không cần nhân viên thao tác gì. Đường thanh toán CŨ (chuyển
+-- khoản thủ công do nhân viên xác nhận bằng mắt) VẪN GIỮ NGUYÊN — 2 đường
+-- cùng tồn tại song song, khách/nhân viên có thể dùng đường nào cũng được.
+--
+-- PHẠM VI (quyết định thiết kế có chủ đích): CHỈ áp dụng cho đơn TẠI BÀN
+-- (order_type = 'dine_in', table_id khác null) — đơn "mang đi" hiện KHÔNG đi
+-- qua CheckoutSheet/PaymentConfirmSheet (xem ghi chú order.service.createOrder
+-- Module 13), nên tự động hoá thanh toán mang đi nằm ngoài phạm vi lần này,
+-- không phải thiếu sót.
+--
+-- 1 MÃ PAYOS = CẢ BÀN, KHÔNG PHẢI 1 ĐƠN: 1 bàn có thể có NHIỀU đơn đang hoạt
+-- động cùng lúc (khách gọi nhiều lượt món) và khách chỉ thanh toán DỒN 1 lần
+-- khi rời quán — giống hệt luồng thủ công (markOrdersPaid nhận danh sách
+-- NHIỀU order id của 1 bàn, không phải 1 đơn lẻ). Vì vậy: đơn "neo" (đơn gần
+-- nhất của bàn, `latestOrderId` phía client) giữ `payment_order_code`/
+-- `payment_link_id` (đúng 1 mã PayOS = đúng 1 dòng, khớp ràng buộc UNIQUE),
+-- nhưng số tiền gửi PayOS = TỔNG mọi đơn đang hoạt động của bàn, và khi
+-- webhook xác nhận, RPC `confirm_payos_payment` bên dưới thanh toán CẢ BÀN
+-- (mọi đơn payment_status='unpaid' của table_id đó) trong CÙNG 1 câu UPDATE
+-- nguyên tử — không chỉ riêng đơn neo.
+--
+-- KHÔNG GẮN shift_id: webhook PayOS gọi từ server, KHÔNG có phiên đăng nhập
+-- nhân viên nào để tra "ca đang mở của ai" (khác markOrdersPaid, nơi
+-- auth.uid() xác định được nhân viên đang thao tác) — cố ý để `shift_id =
+-- null` cho các đơn thanh toán tự động này, đúng tinh thần đã áp dụng ở
+-- Module 8 ("không chặn/không suy đoán, tiền vẫn được ghi nhận đầy đủ").
+-- Hệ quả: doanh thu qua PayOS sẽ KHÔNG xuất hiện trong báo cáo CHỐT CA ở
+-- `/admin/shifts` (vốn lọc theo shift_id) — vẫn xuất hiện đầy đủ ở
+-- Dashboard/Thống kê tổng (không lọc theo shift_id). Đã ghi rõ trong
+-- claude/tinh-trang-du-an.md để không bị hiểu nhầm là mất doanh thu.
+-- ============================================================================
+
+-- ---- orders: đổi tên giá trị 'transfer' -> 'vietqr' cho payment_method, và
+--      thêm 'failed'/'refunded' cho payment_status — theo ĐÚNG thứ tự an
+--      toàn đã rút ra từ Module 13 (bảng tables): PHẢI drop constraint CŨ
+--      trước, rồi mới migrate dữ liệu, rồi mới add constraint MỚI — migrate
+--      trước khi drop sẽ làm chính câu UPDATE bên dưới vi phạm constraint cũ
+--      đang còn hiệu lực. ----
+alter table orders drop constraint if exists orders_payment_method_check;
+alter table orders drop constraint if exists orders_payment_status_check;
+
+update orders set payment_method = 'vietqr' where payment_method = 'transfer';
+
+alter table orders add constraint orders_payment_method_check
+  check (payment_method in ('cash', 'vietqr'));
+alter table orders add constraint orders_payment_status_check
+  check (payment_status in ('unpaid', 'paid', 'failed', 'refunded'));
+
+-- LƯU Ý QUAN TRỌNG (không phải bug): sau đổi tên này, 'vietqr' dùng chung
+-- cho CẢ 2 trường hợp — (1) nhân viên xác nhận thủ công bằng mắt ở
+-- PaymentConfirmSheet, và (2) PayOS xác nhận tự động qua webhook. Muốn phân
+-- biệt lại 2 trường hợp này sau này (vd để kiểm toán) KHÔNG cần thêm cột
+-- mới: đơn có payment_order_code khác null chính là đơn được PayOS xác nhận
+-- tự động, đơn payment_method='vietqr' nhưng payment_order_code null là
+-- nhân viên tự xác nhận thủ công.
+
+-- ---- orders: 3 cột phục vụ tích hợp PayOS. Mỗi mã payment_order_code chỉ
+--      gắn với ĐÚNG 1 đơn (đơn "neo" của cả bàn, xem giải thích ở trên) nên
+--      UNIQUE — NULLABLE vì tuyệt đại đa số đơn (tiền mặt, hoặc chuyển khoản
+--      thủ công) không bao giờ có giá trị ở 3 cột này. ----
+alter table orders add column if not exists payment_order_code bigint unique;
+alter table orders add column if not exists payment_link_id text;
+alter table orders add column if not exists paid_at timestamptz;
+
+-- ---- close_shift: đổi bộ lọc doanh thu chuyển khoản từ 'transfer' sang
+--      'vietqr' cho khớp tên giá trị mới — CHỮ KÝ HÀM (số/kiểu tham số)
+--      KHÔNG đổi so với bản Module 14 nên "create or replace" thay thế được
+--      trực tiếp, không cần drop function trước (khác với 2 lần đổi CHỮ KÝ ở
+--      Module 8 -> 14). ----
+create or replace function public.close_shift(
+  p_shift_id uuid,
+  p_final_cash numeric,
+  p_admin_note text default null
+)
+returns table (
+  id uuid,
+  staff_id uuid,
+  start_time timestamptz,
+  end_time timestamptz,
+  initial_cash numeric,
+  final_cash numeric,
+  total_revenue_cash numeric,
+  total_revenue_transfer numeric,
+  status text,
+  created_at timestamptz,
+  admin_note text,
+  edited_by uuid,
+  edited_at timestamptz,
+  order_count bigint
+)
+language plpgsql
+as $$
+begin
+  return query
+  update public.shifts s
+  set
+    end_time = now(),
+    final_cash = p_final_cash,
+    total_revenue_cash = coalesce((
+      select sum(o.total_amount) from public.orders o
+      where o.shift_id = s.id and o.payment_status = 'paid' and o.payment_method = 'cash'
+    ), 0),
+    total_revenue_transfer = coalesce((
+      select sum(o.total_amount) from public.orders o
+      where o.shift_id = s.id and o.payment_status = 'paid' and o.payment_method = 'vietqr'
+    ), 0),
+    status = 'closed',
+    admin_note = case when p_admin_note is not null then p_admin_note else s.admin_note end,
+    edited_by = case when p_admin_note is not null then auth.uid() else s.edited_by end,
+    edited_at = case when p_admin_note is not null then now() else s.edited_at end
+  where s.id = p_shift_id
+    and s.status = 'active'
+  returning
+    s.id, s.staff_id, s.start_time, s.end_time, s.initial_cash, s.final_cash,
+    s.total_revenue_cash, s.total_revenue_transfer, s.status, s.created_at,
+    s.admin_note, s.edited_by, s.edited_at,
+    (select count(*) from public.orders o2 where o2.shift_id = s.id and o2.payment_status = 'paid');
+end;
+$$;
+
+-- ---- confirm_payos_payment: hàm nguyên tử webhook gọi khi PayOS báo "đã
+--      nhận tiền" — nhận vào mã đơn (orderCode) đã gửi PayOS lúc tạo link,
+--      tìm ra BÀN của đơn neo giữ mã đó, rồi thanh toán CẢ BÀN (mọi đơn
+--      payment_status='unpaid' còn active của đúng bàn này) trong 1 câu
+--      UPDATE. Trả về 1 dòng / 1 đơn vừa được chốt (kèm customer_id/
+--      total_amount) để phía webhook (TypeScript) tự cộng điểm thưởng cho
+--      từng đơn — GIỐNG HỆT cách markOrdersPaid làm ở tầng client, chỉ khác
+--      chỗ này chạy nguyên tử trong SQL vì được gọi bằng service-role key
+--      (không có phiên đăng nhập/RLS nào để dựa vào).
+--
+--      AN TOÀN GỌI LẶP (idempotent): PayOS có thể gọi webhook nhiều lần cho
+--      cùng 1 giao dịch (thử lại khi mạng lỗi...) — lần gọi ĐẦU đã chuyển
+--      payment_status của các đơn liên quan sang 'paid', nên `where
+--      payment_status = 'unpaid'` ở các lần gọi SAU tự nhiên không khớp dòng
+--      nào -> trả về rỗng, phía webhook coi là "đã xử lý trước đó", không
+--      cộng điểm/báo Telegram lần 2. ----
+create or replace function public.confirm_payos_payment(p_order_code bigint)
+returns table (
+  order_id uuid,
+  table_id uuid,
+  table_number int,
+  customer_id uuid,
+  total_amount numeric
+)
+language plpgsql
+as $$
+declare
+  v_table_id uuid;
+begin
+  select o.table_id into v_table_id
+  from public.orders o
+  where o.payment_order_code = p_order_code
+  limit 1;
+
+  -- Không tìm thấy đơn neo giữ mã này (vd PayOS gọi thử/ping webhook lúc
+  -- cấu hình) — trả rỗng, phía webhook coi là bỏ qua an toàn, KHÔNG báo lỗi.
+  if v_table_id is null then
+    return;
+  end if;
+
+  return query
+  update public.orders o
+  set
+    payment_status = 'paid',
+    payment_method = 'vietqr',
+    status = 'completed',
+    paid_at = now()
+  from public.tables t
+  where o.table_id = v_table_id
+    and o.payment_status = 'unpaid'
+    and o.status in ('pending', 'preparing')
+    and t.id = o.table_id
+  returning o.id, o.table_id, t.table_number, o.customer_id, o.total_amount;
+end;
+$$;

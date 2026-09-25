@@ -1,0 +1,140 @@
+import { NextResponse } from "next/server";
+import { calculatePointsEarned } from "@/lib/loyalty";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { verifyWebhookSignature } from "@/services/payos.service";
+import type { ConfirmPayosPaymentResultRow } from "@/types/database.types";
+import type { PayOSWebhookBody } from "@/types";
+
+// Cần "crypto" (payos.service) + gọi Telegram API — Node.js runtime, giống mọi
+// Route Handler khác trong dự án có xử lý secret/xác thực phía server.
+export const runtime = "nodejs";
+
+function isPayosWebhookBody(value: unknown): value is PayOSWebhookBody {
+  if (typeof value !== "object" || value === null) return false;
+  const body = value as Record<string, unknown>;
+  return typeof body.code === "string" && typeof body.signature === "string";
+}
+
+/** Gửi Telegram trực tiếp (server-to-server) — KHÔNG qua /api/notify/telegram vì route đó chỉ nhận request từ CLIENT (trình duyệt), ở đây webhook PayOS gọi thẳng server, không có "trình duyệt" nào để tự fetch route nội bộ. Fire-and-forget, không bao giờ ném lỗi ra ngoài (giống mọi thông báo Telegram khác trong dự án). */
+function notifyPayosPaymentSuccessTelegram(tableNumber: number, settledAmount: number, orderCount: number): void {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  const text = [
+    `✅ <b>ĐÃ NHẬN TIỀN CHUYỂN KHOẢN</b>`,
+    `Bàn ${tableNumber} — ${orderCount} đơn — Số tiền: ${Math.round(settledAmount).toLocaleString("vi-VN")}đ qua VietQR`,
+  ].join("\n");
+
+  void fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+  }).catch(() => {
+    // Bỏ qua lặng lẽ — xem giải thích ở telegram.service.ts, thông báo Telegram không được phép chặn luồng chính.
+  });
+}
+
+/**
+ * Webhook PayOS gọi khi trạng thái 1 link thanh toán thay đổi (Module 15).
+ * KHÔNG yêu cầu đăng nhập (PayOS gọi thẳng từ server của họ, không có phiên
+ * nào) — an toàn nhờ XÁC MINH CHỮ KÝ (verifyWebhookSignature) trên mọi
+ * request trước khi tin bất kỳ điều gì trong `data`, chặn đứng khả năng ai đó
+ * giả mạo request để tự đánh dấu 1 đơn "đã thanh toán".
+ *
+ * LUÔN trả về 2xx trừ khi chữ ký sai — kể cả khi không tìm thấy đơn/đã xử lý
+ * trước đó — để PayOS không hiểu nhầm là lỗi rồi thử gọi lại liên tục/tắt
+ * webhook. Xem thêm ghi chú "AN TOÀN GỌI LẶP" ở RPC confirm_payos_payment.
+ */
+export async function POST(request: Request): Promise<NextResponse> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  if (!isPayosWebhookBody(body)) {
+    return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
+  }
+
+  // PayOS gọi thử URL webhook lúc quán bấm "Xác nhận" trong dashboard của họ,
+  // kèm `data: null` — không có gì để xử lý, trả 200 ngay để xác nhận URL
+  // sống, KHÔNG coi là lỗi.
+  if (!body.data) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
+  if (!verifyWebhookSignature(body.data, body.signature)) {
+    return NextResponse.json({ error: "invalid_signature" }, { status: 400 });
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const orderCode = body.data.orderCode;
+
+  // code !== "00" — PayOS báo giao dịch không thành công (huỷ/lỗi...). CHỈ
+  // đánh dấu riêng đơn neo là 'failed', KHÔNG đụng tới các đơn khác của bàn —
+  // khách vẫn có thể thử lại hoặc trả tiền mặt bình thường.
+  if (body.data.code !== "00") {
+    // Ép kiểu `as any` ngay sau .from("orders") — cùng lý do đã ghi chú ở
+    // /api/admin/staff/route.ts và /api/cron/reset-availability/route.ts:
+    // TypeScript suy luận sai tham số của .update() trên client tạo bằng
+    // createClient thuần (createSupabaseAdminClient), không ảnh hưởng runtime.
+    await (supabase.from("orders") as any)
+      .update({ payment_status: "failed" })
+      .eq("payment_order_code", orderCode)
+      .eq("payment_status", "unpaid");
+    return NextResponse.json({ ok: true, failed: true });
+  }
+
+  const { data: settledRows, error: rpcError } = await supabase.rpc("confirm_payos_payment", {
+    p_order_code: orderCode,
+  });
+
+  if (rpcError) {
+    // Lỗi RPC thật (không phải "không tìm thấy") — trả 500 để PayOS thử lại
+    // sau, vì đây có thể là sự cố tạm thời phía database.
+    return NextResponse.json({ error: "database_error" }, { status: 500 });
+  }
+
+  const rows = (settledRows ?? []) as ConfirmPayosPaymentResultRow[];
+  if (rows.length === 0) {
+    // Không tìm thấy đơn neo, hoặc webhook gọi lặp cho giao dịch đã xử lý
+    // trước đó — cả 2 trường hợp đều AN TOÀN để bỏ qua (xem ghi chú RPC).
+    return NextResponse.json({ ok: true, alreadyProcessed: true });
+  }
+
+  const tableId = rows[0]?.table_id;
+  const tableNumber = rows[0]?.table_number ?? 0;
+  const settledAmount = rows.reduce((sum, r) => sum + r.total_amount, 0);
+
+  // Bàn chuyển "Cần dọn dẹp" — giống hệt hành vi markOrdersPaid thủ công
+  // (Module 13), không chặn luồng chính nếu lỗi nhẹ.
+  if (tableId) {
+    await (supabase.from("tables") as any).update({ status: "needs_cleaning" }).eq("id", tableId);
+  }
+
+  // Cộng điểm thưởng cho từng đơn có customer_id — best-effort, lỗi không
+  // được chặn việc webhook trả về thành công (tiền đã ghi nhận là quan trọng
+  // nhất, giống hệt order.service.markOrdersPaid).
+  await Promise.all(
+    rows
+      .filter((row): row is ConfirmPayosPaymentResultRow & { customer_id: string } => row.customer_id !== null)
+      .map(async (row) => {
+        try {
+          await supabase.rpc("award_loyalty_points", {
+            p_customer_id: row.customer_id,
+            p_order_id: row.order_id,
+            p_points: calculatePointsEarned(row.total_amount),
+            p_amount: row.total_amount,
+          });
+        } catch {
+          // Bỏ qua — xem giải thích ở JSDoc hàm này.
+        }
+      })
+  );
+
+  notifyPayosPaymentSuccessTelegram(tableNumber, settledAmount, rows.length);
+
+  return NextResponse.json({ ok: true, tableNumber, settledOrderCount: rows.length, settledAmount });
+}

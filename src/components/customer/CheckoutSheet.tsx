@@ -11,7 +11,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { buildVietQrUrl } from "@/lib/vietqr";
 import { createStaffCall } from "@/services/staffCall.service";
-import { setOrderPaymentMethod } from "@/services/order.service";
+import { getOrderPaymentStatus, setOrderPaymentMethod } from "@/services/order.service";
 import type { CreatePaymentLinkResult } from "@/types";
 import type { PaymentMethod } from "@/types/database.types";
 import { Banknote, Loader2, PartyPopper, QrCode, Zap } from "lucide-react";
@@ -86,38 +86,62 @@ export function CheckoutSheet({
 
   const qrUrl = orderId ? buildVietQrUrl(totalAmount, orderId.slice(0, 8).toUpperCase()) : null;
 
-  // Phát hiện thanh toán PayOS THÀNH CÔNG bằng cách theo dõi `hasActiveOrder`
-  // (đến từ `useActiveOrders` ở trang cha — hook này ĐÃ có sẵn 1 kênh realtime
-  // riêng lắng nghe đúng bàn này để cập nhật danh sách đơn) — KHÔNG tự mở thêm
-  // 1 kênh realtime RIÊNG của CheckoutSheet lắng nghe cùng bảng `orders` cùng
-  // điều kiện lọc `table_id` như bản đầu tiên đã làm.
-  //
-  // Lý do đổi cách này: Supabase Realtime (bản hosted) có bug đã biết — khi có
-  // từ 2 subscription trở lên cùng lọc TRÙNG NHAU trên cùng 1 bảng (dù tên
-  // channel khác nhau), CHỈ 1 trong 2 subscription nhận được sự kiện, cái còn
-  // lại im lặng không báo gì (xem https://github.com/supabase/realtime/issues/1524).
-  // Đây chính xác là lỗi đã gặp khi test thật: DB cập nhật đúng (bàn tự chuyển
-  // "Cần dọn dẹp" nhờ kênh của nhân viên), nhưng kênh riêng của CheckoutSheet
-  // (trùng lọc với kênh của useActiveOrders) không nhận được, khiến màn hình
-  // khách kẹt mãi ở "Đang chờ xác nhận thanh toán tự động".
-  //
-  // Mọi đơn đang hoạt động của bàn LUÔN chuyển status='completed' CÙNG LÚC với
-  // payment_status='paid' (cả đường PayOS tự động lẫn đường nhân viên xác
-  // nhận thủ công — xem confirm_payos_payment/markOrdersPaid) — nên
-  // "hasActiveOrder chuyển từ true sang false trong lúc đang chờ" là tín hiệu
-  // suy ra thanh toán vừa thành công, đủ chắc chắn mà không cần tự mở kênh
-  // riêng. Trường hợp PayOS báo giao dịch THẤT BẠI (code khác "00") không làm
-  // hasActiveOrder đổi (đơn vẫn ở trạng thái active để khách thử lại), nên
-  // không bị nhầm là thành công.
-  useEffect(() => {
-    if (!open || payosStep !== "waiting" || hasActiveOrder) return;
-
-    setPayosStep("paid");
+  function markPaidOnce() {
+    setPayosStep((current) => (current === "waiting" ? "paid" : current));
     if (!playedSoundRef.current) {
       playedSoundRef.current = true;
       playTingSound();
     }
+  }
+
+  // Đường "NHANH": hasActiveOrder (đến từ `useActiveOrders` ở trang cha) rớt
+  // xuống false ngay khi webhook PayOS xác nhận — vì mọi đơn đang hoạt động
+  // của bàn LUÔN chuyển status='completed' CÙNG LÚC với payment_status='paid'
+  // (cả đường PayOS lẫn đường nhân viên xác nhận thủ công). Chỉ có tác dụng
+  // KHI kênh realtime của useActiveOrders thực sự nhận được sự kiện — xem ghi
+  // chú "đường CHẮC CHẮN" (polling) ngay dưới để biết vì sao không thể chỉ
+  // dựa vào mỗi đường này.
+  useEffect(() => {
+    if (!open || payosStep !== "waiting" || hasActiveOrder) return;
+    markPaidOnce();
   }, [open, payosStep, hasActiveOrder]);
+
+  // Đường "CHẮC CHẮN": polling trực tiếp payment_status của đúng đơn này mỗi
+  // 3 giây, KHÔNG phụ thuộc Realtime. Bắt buộc phải có đường này vì: dự án có
+  // rất nhiều hook phía chủ quán/nhân viên (`useTables`, `useAnalyticsReport`,
+  // `useSmartInsights`, `useDashboardSummary`, `useRevenueSeries`) đều mở 1
+  // subscription KHÔNG LỌC trên toàn bộ bảng `orders` — và tablet nhân viên
+  // gần như luôn mở liên tục. Theo đúng bug đã biết của Supabase Realtime bản
+  // hosted (nhiều subscription cùng bảng, dù filter khác nhau, có thể tranh
+  // nhau khiến 1 số bị "câm" không nhận sự kiện —
+  // https://github.com/supabase/realtime/issues/1524), kênh của
+  // `useActiveOrders` (lọc theo table_id) có thể bị đúng subscription không
+  // lọc phía nhân viên "cướp" mất sự kiện bất cứ lúc nào tuỳ thứ tự
+  // kết nối — không thể khắc phục triệt để chỉ bằng cách sửa 1 phía. Polling
+  // bằng 1 câu SELECT đơn giản đọc thẳng payment_status không đi qua Realtime
+  // nên KHÔNG bị ảnh hưởng bởi bug này, đảm bảo màn hình luôn tự chuyển đúng
+  // trong tối đa ~3 giây kể cả khi mọi kênh realtime đều im lặng.
+  useEffect(() => {
+    if (!open || payosStep !== "waiting" || !orderId) return;
+
+    let cancelled = false;
+    const interval = setInterval(() => {
+      void getOrderPaymentStatus(orderId)
+        .then((result) => {
+          if (!cancelled && result?.payment_status === "paid") {
+            markPaidOnce();
+          }
+        })
+        .catch(() => {
+          // Bỏ qua — thử lại ở lượt poll kế tiếp, không làm phiền khách bằng toast lỗi lặp lại mỗi 3 giây.
+        });
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [open, payosStep, orderId]);
 
   async function handleCreatePayosLink() {
     if (!orderId) {

@@ -455,6 +455,37 @@ export async function getLatestCompletedOrder(tableId: string): Promise<OrdersRo
 }
 
 /**
+ * Đọc trực tiếp payment_status hiện tại của 1 đơn — dùng để POLLING xác nhận
+ * thanh toán PayOS (Module 15) thay vì chỉ dựa vào Realtime. Lý do cần thêm
+ * đường polling này dù đã có `useActiveOrders` tự refetch qua Realtime: dự án
+ * có RẤT NHIỀU hook khác (`useTables`, `useAnalyticsReport`, `useSmartInsights`,
+ * `useDashboardSummary`, `useRevenueSeries` — phía chủ quán/nhân viên) đều gọi
+ * `subscribeToAnyOrderUpdate` — 1 subscription KHÔNG lọc (`filter` rỗng) trên
+ * CÙNG bảng `orders`. Theo đúng bug đã biết của Supabase Realtime bản hosted
+ * (https://github.com/supabase/realtime/issues/1524), nhiều subscription cùng
+ * bảng dù filter khác nhau vẫn có thể tranh nhau, khiến 1 số subscription bị
+ * "câm" không nhận được sự kiện — mà tablet nhân viên gần như LUÔN mở liên
+ * tục cả ngày, nên xung đột này gần như luôn xảy ra trong thực tế, không thể
+ * khắc phục triệt để chỉ bằng cách sửa riêng phía khách hàng. Polling trực
+ * tiếp bằng 1 câu SELECT đơn giản, tần suất thấp (vài giây/lần) trong lúc chờ
+ * là cách CHẮC CHẮN đúng, không phụ thuộc Realtime có hoạt động hay không.
+ */
+export async function getOrderPaymentStatus(
+  orderId: string
+): Promise<Pick<OrdersRow, "payment_status" | "status"> | null> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("payment_status, status")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError("Không thể kiểm tra trạng thái thanh toán.", error);
+  }
+  return data as unknown as Pick<OrdersRow, "payment_status" | "status"> | null;
+}
+
+/**
  * Lắng nghe realtime cập nhật trạng thái từng món (bếp/bar bấm Đang làm -> Hoàn thành).
  * order_items không có sẵn cột table_id để Postgres Changes filter trực tiếp
  * (chỉ có qua order_id -> orders.table_id), nên ở quy mô 15 bàn, cách đơn giản

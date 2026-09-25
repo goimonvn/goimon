@@ -11,7 +11,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { buildVietQrUrl } from "@/lib/vietqr";
 import { createStaffCall } from "@/services/staffCall.service";
-import { setOrderPaymentMethod, subscribeToOrderUpdates } from "@/services/order.service";
+import { setOrderPaymentMethod } from "@/services/order.service";
 import type { CreatePaymentLinkResult } from "@/types";
 import type { PaymentMethod } from "@/types/database.types";
 import { Banknote, Loader2, PartyPopper, QrCode, Zap } from "lucide-react";
@@ -26,6 +26,8 @@ interface CheckoutSheetProps {
   tableNumber: number;
   orderId: string | null;
   totalAmount: number;
+  /** true khi bàn còn đơn đang hoạt động (đến từ `useActiveOrders` ở trang cha) — dùng để tự phát hiện thanh toán PayOS thành công, xem ghi chú ở useEffect bên dưới. */
+  hasActiveOrder: boolean;
 }
 
 /** Trạng thái luồng thanh toán tự động qua PayOS (Module 15) — độc lập với luồng thủ công cũ (setOrderPaymentMethod + gọi nhân viên). */
@@ -72,6 +74,7 @@ export function CheckoutSheet({
   tableNumber,
   orderId,
   totalAmount,
+  hasActiveOrder,
 }: CheckoutSheetProps) {
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [submitting, setSubmitting] = useState(false);
@@ -83,27 +86,38 @@ export function CheckoutSheet({
 
   const qrUrl = orderId ? buildVietQrUrl(totalAmount, orderId.slice(0, 8).toUpperCase()) : null;
 
-  // Lắng nghe realtime trên đúng bàn này trong suốt lúc sheet đang mở — khi
-  // webhook PayOS xác nhận thanh toán (RPC confirm_payos_payment), MỌI đơn
-  // đang hoạt động của bàn chuyển payment_status='paid' NGAY trong 1 câu
-  // UPDATE, event Postgres Changes bắn ra tức thì, không cần khách bấm gì.
+  // Phát hiện thanh toán PayOS THÀNH CÔNG bằng cách theo dõi `hasActiveOrder`
+  // (đến từ `useActiveOrders` ở trang cha — hook này ĐÃ có sẵn 1 kênh realtime
+  // riêng lắng nghe đúng bàn này để cập nhật danh sách đơn) — KHÔNG tự mở thêm
+  // 1 kênh realtime RIÊNG của CheckoutSheet lắng nghe cùng bảng `orders` cùng
+  // điều kiện lọc `table_id` như bản đầu tiên đã làm.
+  //
+  // Lý do đổi cách này: Supabase Realtime (bản hosted) có bug đã biết — khi có
+  // từ 2 subscription trở lên cùng lọc TRÙNG NHAU trên cùng 1 bảng (dù tên
+  // channel khác nhau), CHỈ 1 trong 2 subscription nhận được sự kiện, cái còn
+  // lại im lặng không báo gì (xem https://github.com/supabase/realtime/issues/1524).
+  // Đây chính xác là lỗi đã gặp khi test thật: DB cập nhật đúng (bàn tự chuyển
+  // "Cần dọn dẹp" nhờ kênh của nhân viên), nhưng kênh riêng của CheckoutSheet
+  // (trùng lọc với kênh của useActiveOrders) không nhận được, khiến màn hình
+  // khách kẹt mãi ở "Đang chờ xác nhận thanh toán tự động".
+  //
+  // Mọi đơn đang hoạt động của bàn LUÔN chuyển status='completed' CÙNG LÚC với
+  // payment_status='paid' (cả đường PayOS tự động lẫn đường nhân viên xác
+  // nhận thủ công — xem confirm_payos_payment/markOrdersPaid) — nên
+  // "hasActiveOrder chuyển từ true sang false trong lúc đang chờ" là tín hiệu
+  // suy ra thanh toán vừa thành công, đủ chắc chắn mà không cần tự mở kênh
+  // riêng. Trường hợp PayOS báo giao dịch THẤT BẠI (code khác "00") không làm
+  // hasActiveOrder đổi (đơn vẫn ở trạng thái active để khách thử lại), nên
+  // không bị nhầm là thành công.
   useEffect(() => {
-    if (!open || payosStep !== "waiting") return;
+    if (!open || payosStep !== "waiting" || hasActiveOrder) return;
 
-    const channel = subscribeToOrderUpdates(tableId, (order) => {
-      if (order.payment_status === "paid") {
-        setPayosStep("paid");
-        if (!playedSoundRef.current) {
-          playedSoundRef.current = true;
-          playTingSound();
-        }
-      }
-    });
-
-    return () => {
-      void channel.unsubscribe();
-    };
-  }, [open, payosStep, tableId]);
+    setPayosStep("paid");
+    if (!playedSoundRef.current) {
+      playedSoundRef.current = true;
+      playTingSound();
+    }
+  }, [open, payosStep, hasActiveOrder]);
 
   async function handleCreatePayosLink() {
     if (!orderId) {

@@ -160,6 +160,7 @@ function StatusPageContent() {
         tableNumber={table.table_number}
         orderId={latestOrderId}
         totalAmount={grandTotal}
+        hasActiveOrder={orders.length > 0}
       />
       <VatInvoiceDialog open={vatOpen} onOpenChange={setVatOpen} orderId={latestOrderId} />
     </div>

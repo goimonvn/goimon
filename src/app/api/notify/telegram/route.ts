@@ -124,6 +124,35 @@ function buildMessageText(body: unknown): string | null {
       ].join("\n");
     }
 
+    case "new_reservation": {
+      if (typeof body.customerName !== "string" || !body.customerName.trim()) return null;
+      if (typeof body.customerPhone !== "string" || !body.customerPhone.trim()) return null;
+      const partySize =
+        typeof body.partySize === "number" && Number.isInteger(body.partySize) && body.partySize > 0
+          ? body.partySize
+          : null;
+      if (partySize === null) return null;
+
+      const reservationTimeLabel =
+        typeof body.reservationTime === "string" && body.reservationTime
+          ? new Date(body.reservationTime).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })
+          : "Chưa rõ giờ";
+
+      const note =
+        typeof body.note === "string" && body.note.trim()
+          ? escapeHtml(body.note.trim().slice(0, MAX_COMMENT_LENGTH))
+          : "";
+
+      return [
+        `🗓️ <b>Đặt bàn mới — cần gọi lại xác nhận</b>`,
+        `${escapeHtml(body.customerName.trim().slice(0, MAX_ITEM_NAME_LENGTH))} · ${escapeHtml(body.customerPhone.trim().slice(0, 20))}`,
+        `${partySize} khách · Lúc ${reservationTimeLabel}`,
+        note ? `Ghi chú: ${note}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+
     case "new_feedback": {
       const tableLabel = isValidTableNumber(body.tableNumber) ? `Bàn ${body.tableNumber}` : "Khách";
       const ratingBeverage = typeof body.ratingBeverage === "number" ? body.ratingBeverage : 0;

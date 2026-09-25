@@ -16,6 +16,8 @@ import type {
   PromotionDiscountType,
   PromotionsRow,
   RecipeItemsRow,
+  ReservationsRow,
+  ReservationStatus,
   ShiftStatus,
   ShiftsRow,
   StaffCallRequestType,
@@ -250,6 +252,12 @@ export interface StaffCallWithTable extends StaffCallsRow {
 export interface TableWithOrders extends TablesRow {
   activeOrders: OrderWithItems[];
   pendingStaffCalls: StaffCallWithTable[];
+  /**
+   * Module 18: lượt đặt bàn đã XÁC NHẬN và đã GÁN đúng bàn này — hiển thị
+   * dạng badge tham khảo trên sơ đồ bàn (TableCard/TableListRow), KHÔNG ảnh
+   * hưởng `status`/màu của bàn. `null` nếu bàn chưa có lượt đặt nào được gán.
+   */
+  upcomingReservation: ReservationWithTable | null;
 }
 
 export const NEXT_ORDER_ITEM_STATUS: Record<OrderItemStatus, OrderItemStatus | null> = {
@@ -545,6 +553,20 @@ export type TelegramNotifyPayload =
       pickupTime: string | null;
       items: TelegramOrderItemSummary[];
       totalAmount: number;
+    }
+  | {
+      /**
+       * Lượt đặt bàn MỚI qua `/dat-ban` (Module 18) — CHỈ bắn cho nguồn khách
+       * tự đặt (cần gọi lại xác nhận); nhân viên tự tạo hộ ngay trong app thì
+       * KHÔNG cần báo lại vì chính họ vừa thao tác, xem reservation.service.ts.
+       */
+      type: "new_reservation";
+      customerName: string;
+      customerPhone: string;
+      partySize: number;
+      /** Chuỗi ISO. */
+      reservationTime: string;
+      note: string | null;
     };
 
 // ---------------------------------------------------------------------------
@@ -791,4 +813,21 @@ export interface ZoneFormInput {
 /** Khu vực kèm danh sách bàn thuộc khu vực đó — dùng cho phần xem nhanh ở `/admin/zones`, xem zone.service.ts#getZonesWithTables. */
 export interface ZoneWithTables extends ZonesRow {
   tables: TablesRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Module 18 — Đặt bàn trước từ xa (Remote Table Reservations)
+// ---------------------------------------------------------------------------
+
+export const RESERVATION_STATUS_LABEL: Record<ReservationStatus, string> = {
+  pending: "Chờ xác nhận",
+  confirmed: "Đã xác nhận",
+  seated: "Khách đã tới",
+  cancelled: "Đã huỷ",
+  no_show: "Không tới",
+};
+
+/** Lượt đặt bàn kèm số bàn (nếu đã gán) — dùng cho `/staff/reservations` và badge trên sơ đồ bàn. */
+export interface ReservationWithTable extends ReservationsRow {
+  table_number: number | null;
 }

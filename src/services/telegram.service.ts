@@ -66,6 +66,28 @@ export function notifyNewFeedbackTelegram(
 }
 
 /**
+ * Báo quán có 1 lượt đặt bàn MỚI qua `/dat-ban` (Module 18) — CHỈ dùng cho
+ * nguồn khách tự đặt (cần quán chủ động gọi lại xác nhận); nhân viên tự tạo
+ * hộ ngay trong app thì không gọi hàm này, xem reservation.service.ts.
+ */
+export function notifyNewReservationTelegram(
+  customerName: string,
+  customerPhone: string,
+  partySize: number,
+  reservationTime: string,
+  note: string | null
+): void {
+  postTelegramNotification({
+    type: "new_reservation",
+    customerName,
+    customerPhone,
+    partySize,
+    reservationTime,
+    note,
+  });
+}
+
+/**
  * Báo quán 1 nguyên liệu vừa xuống mức sắp/đã hết (stock_quantity <=
  * min_threshold) NGAY SAU KHI trừ kho tự động — Module 12, gọi từ
  * inventory.service.checkAndDeductInventoryForOrderItem. Cũng "bắn rồi quên"

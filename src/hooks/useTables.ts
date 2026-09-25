@@ -5,6 +5,7 @@ import {
   subscribeToAnyOrderUpdate,
   subscribeToOrderItemUpdates,
 } from "@/services/order.service";
+import { getActiveReservations, subscribeToReservationChanges } from "@/services/reservation.service";
 import { getPendingStaffCalls, subscribeToStaffCalls } from "@/services/staffCall.service";
 import { getAllTables, subscribeToTableChanges } from "@/services/table.service";
 import type { TableWithOrders } from "@/types";
@@ -30,17 +31,29 @@ export function useTables(): UseTablesResult {
 
     async function load() {
       try {
-        const [tableRows, orders, staffCalls] = await Promise.all([
+        const [tableRows, orders, staffCalls, reservations] = await Promise.all([
           getAllTables(),
           getAllActiveOrders(),
           getPendingStaffCalls(),
+          getActiveReservations(),
         ]);
         if (cancelled) return;
+
+        // Module 18: chỉ những lượt ĐÃ XÁC NHẬN và ĐÃ GÁN bàn mới hiện badge
+        // tham khảo trên sơ đồ — lượt 'pending' (chưa gọi lại xác nhận) hoặc
+        // chưa gán bàn cụ thể không hiển thị ở đây, chỉ thấy ở
+        // `/staff/reservations`.
+        const confirmedByTable = new Map(
+          reservations
+            .filter((r) => r.status === "confirmed" && r.table_id !== null)
+            .map((r) => [r.table_id as string, r])
+        );
 
         const merged: TableWithOrders[] = tableRows.map((table) => ({
           ...table,
           activeOrders: orders.filter((order) => order.table_id === table.id),
           pendingStaffCalls: staffCalls.filter((call) => call.table_id === table.id),
+          upcomingReservation: confirmedByTable.get(table.id) ?? null,
         }));
         setTables(merged);
       } catch (error) {
@@ -57,6 +70,7 @@ export function useTables(): UseTablesResult {
       subscribeToAnyOrderUpdate(() => void load()),
       subscribeToOrderItemUpdates(() => void load()),
       subscribeToStaffCalls(() => void load()),
+      subscribeToReservationChanges(() => void load()),
     ];
 
     return () => {

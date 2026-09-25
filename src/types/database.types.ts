@@ -24,6 +24,14 @@ export type LoyaltyReason = "earn_order" | "manual_adjust";
 export type ShiftStatus = "active" | "closed";
 export type PromotionDiscountType = "percentage" | "fixed";
 export type ExpenseCategory = "ingredient" | "utility" | "salary" | "other";
+/**
+ * Module 18 — vòng đời 1 lượt đặt bàn: 'pending' (khách tự đặt qua /dat-ban,
+ * đang chờ nhân viên gọi lại xác nhận) -> 'confirmed' (đã xác nhận — hoặc do
+ * nhân viên tạo hộ thẳng ở trạng thái này) -> 'seated' (khách đã tới, đóng hồ
+ * sơ). 'cancelled' (quán từ chối hoặc khách báo huỷ) và 'no_show' (quá giờ
+ * hẹn khách không tới) là 2 trạng thái kết thúc còn lại.
+ */
+export type ReservationStatus = "pending" | "confirmed" | "seated" | "cancelled" | "no_show";
 
 export interface TablesRow {
   id: string;
@@ -352,6 +360,26 @@ export interface ExpensesRow {
   created_at: string;
 }
 
+/**
+ * 1 lượt đặt bàn trước (Module 18). `table_id` nullable — chỉ được gán gần
+ * giờ hẹn, THUẦN THÔNG TIN THAM KHẢO hiển thị trên sơ đồ bàn, không đổi
+ * `tables.status`. `created_by` null = khách tự đặt qua `/dat-ban`; not null =
+ * nhân viên tạo hộ khi khách gọi điện — xem ghi chú đầy đủ ở schema.sql.
+ */
+export interface ReservationsRow {
+  id: string;
+  customer_name: string;
+  customer_phone: string;
+  party_size: number;
+  reservation_time: string;
+  note: string | null;
+  table_id: string | null;
+  status: ReservationStatus;
+  cancel_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 // `Relationships` bắt buộc phải có mặt (dù rỗng) để khớp đúng ràng buộc
 // generic `GenericTable` của @supabase/supabase-js — thiếu trường này khiến
 // TypeScript không suy luận được kiểu tham số cho .select()/.update() (sụp
@@ -554,6 +582,17 @@ export interface Database {
         Omit<ExpensesRow, "id" | "created_at" | "expense_date" | "note" | "created_by"> &
           Partial<Pick<ExpensesRow, "expense_date" | "note" | "created_by">>,
         Partial<Omit<ExpensesRow, "id" | "created_at">>
+      >;
+      reservations: TableDefinition<
+        ReservationsRow,
+        Omit<
+          ReservationsRow,
+          "id" | "created_at" | "note" | "table_id" | "status" | "cancel_reason" | "created_by"
+        > &
+          Partial<
+            Pick<ReservationsRow, "note" | "table_id" | "status" | "cancel_reason" | "created_by">
+          >,
+        Partial<Omit<ReservationsRow, "id" | "created_at">>
       >;
     };
     Views: Record<string, never>;

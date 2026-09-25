@@ -3,7 +3,7 @@
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { cn, formatCurrency } from "@/lib/utils";
 import { TABLE_STATUS_LABEL, type TableWithOrders } from "@/types";
-import { Bell, Circle, RectangleHorizontal, Smartphone, Sparkles, Square } from "lucide-react";
+import { Bell, CalendarClock, Circle, RectangleHorizontal, Smartphone, Sparkles, Square } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 
 interface TableListRowProps {
@@ -84,6 +84,17 @@ export function TableListRow({ table, zoneName, onClick, onOrderForCustomer, onM
         {table.activeOrders.length > 0 && (
           <p className="mt-0.5 text-sm text-muted-foreground">
             {itemCount} món · <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
+          </p>
+        )}
+        {/* Module 18: xem ghi chú đầy đủ ở TableCard.tsx — badge THAM KHẢO, không đổi trạng thái bàn. */}
+        {table.upcomingReservation && (
+          <p className="mt-0.5 flex items-center gap-1 text-xs font-medium text-primary">
+            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+            {new Date(table.upcomingReservation.reservation_time).toLocaleTimeString("vi-VN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}{" "}
+            · {table.upcomingReservation.customer_name}
           </p>
         )}
       </div>

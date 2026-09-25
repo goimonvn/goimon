@@ -1321,7 +1321,7 @@ alter table orders add constraint orders_table_id_required_check
   check ((order_type = 'dine_in' and table_id is not null) or (order_type = 'takeaway'));
 
 -- Bật Realtime (Supabase Dashboard > Database > Replication), hoặc chạy:
--- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses, zones, system_settings;
+-- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses, zones, system_settings, reservations;
 
 -- ============================================================================
 -- Module 15 — Tự động xác nhận Thanh toán VietQR qua Webhook PayOS
@@ -1568,3 +1568,87 @@ create policy "Admin update system_settings" on system_settings for update
   to authenticated
   using (public.current_user_role() = 'admin')
   with check (public.current_user_role() = 'admin');
+
+-- ============================================================================
+-- Module 18 — Đặt bàn trước từ xa (Remote Table Reservations)
+--
+-- Bài toán: quán chưa có cách nào nhận đặt bàn TRƯỚC khi khách tới — mọi bàn
+-- chỉ được biết tới khi khách đã quét QR tại chỗ (Module 1). Module này thêm
+-- 1 kênh riêng, KHÔNG gắn với 1 bàn cụ thể ngay từ đầu (khác `?table=` của
+-- Module 1): khách tự đặt qua link công khai `/dat-ban`, HOẶC nhân viên tạo hộ
+-- ngay trong app khi khách gọi điện tới quán.
+--
+-- Quyết định vận hành đã thống nhất với người dùng (KHÔNG làm ở lần này):
+-- quán xác nhận đặt bàn THỦ CÔNG (nhân viên gọi lại), KHÔNG yêu cầu đặt cọc,
+-- và khách KHÔNG có link riêng để tự xem/huỷ lượt đặt của mình — toàn bộ việc
+-- đó nhân viên xử lý qua điện thoại. Vì vậy bảng này CHỈ cần policy INSERT
+-- công khai (giống staff_calls/feedbacks) — không có SELECT/UPDATE nào cho
+-- anon.
+--
+-- 2 nguồn tạo ra 1 lượt đặt, phân biệt bằng `created_by`:
+--   - Khách tự đặt qua `/dat-ban` (anon): `created_by = null`, status khởi
+--     tạo LUÔN là 'pending' — quán còn phải gọi lại xác nhận.
+--   - Nhân viên tạo hộ khi khách gọi điện (`/staff/reservations`): `created_by`
+--     = tài khoản đang đăng nhập, status khởi tạo LUÔN là 'confirmed' — nhân
+--     viên đang nói chuyện trực tiếp với khách nên không cần bước gọi lại.
+-- 2 policy INSERT tách riêng (permissive, OR với nhau — giống cách
+-- "Admin update any shift" ghép với "Staff update own shift" ở Module 14) để
+-- RLS tự chặn: 1 client ẩn danh không có cách nào tự đặt `created_by` thành 1
+-- tài khoản nhân viên để bỏ qua bước xác nhận.
+--
+-- CỐ Ý KHÔNG đổi enum trạng thái bàn (`tables.status`) hay thêm ràng buộc gì
+-- vào luồng đặt món hiện có — gán bàn cho 1 lượt đặt (`table_id`) chỉ là
+-- THÔNG TIN THAM KHẢO hiển thị đè lên sơ đồ bàn (badge, xem TableCard.tsx),
+-- không đổi màu/trạng thái bàn: bàn vẫn tự chuyển 'occupied' đúng lúc khách
+-- gửi đơn gọi món đầu tiên (createOrder, Module 1/13), không cần sửa gì ở đó.
+-- ============================================================================
+
+create table if not exists reservations (
+  id uuid primary key default gen_random_uuid(),
+  customer_name text not null,
+  customer_phone text not null,
+  party_size int not null check (party_size > 0),
+  reservation_time timestamptz not null,
+  note text,
+  -- Nullable + on delete set null (giống order_items.combo_id ở Module 11):
+  -- gán bàn chỉ là thông tin tham khảo hiển thị trên sơ đồ bàn, không phải
+  -- ràng buộc nghiệp vụ — xoá bàn (hiếm khi xảy ra) không được phép kéo theo
+  -- xoá lịch sử đặt bàn.
+  table_id uuid references tables (id) on delete set null,
+  status text not null default 'pending'
+    check (status in ('pending', 'confirmed', 'seated', 'cancelled', 'no_show')),
+  cancel_reason text,
+  -- Nullable: null = khách tự đặt qua `/dat-ban` (anon); not null = nhân viên
+  -- tạo hộ, xem ghi chú ở trên. on delete set null giống created_by của
+  -- expenses (Module 12) — xoá tài khoản nhân viên không được xoá lịch sử.
+  created_by uuid references profiles (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_reservations_reservation_time on reservations (reservation_time);
+
+alter table reservations enable row level security;
+
+-- ---- reservations: KHÔNG có policy SELECT/UPDATE nào cho anon — khách
+--      không tự xem/sửa/huỷ lượt đặt của mình qua bất kỳ đường nào (đã thống
+--      nhất với người dùng), toàn bộ do nhân viên/chủ quán xử lý qua điện
+--      thoại + `/staff/reservations`. ----
+drop policy if exists "Public insert reservations" on reservations;
+create policy "Public insert reservations" on reservations for insert
+  with check (created_by is null and status = 'pending' and table_id is null);
+
+drop policy if exists "Staff insert reservations" on reservations;
+create policy "Staff insert reservations" on reservations for insert
+  to authenticated
+  with check (public.current_user_role() in ('admin', 'staff') and created_by = auth.uid());
+
+drop policy if exists "Staff read reservations" on reservations;
+create policy "Staff read reservations" on reservations for select
+  to authenticated
+  using (public.current_user_role() in ('admin', 'staff'));
+
+drop policy if exists "Staff update reservations" on reservations;
+create policy "Staff update reservations" on reservations for update
+  to authenticated
+  using (public.current_user_role() in ('admin', 'staff'))
+  with check (public.current_user_role() in ('admin', 'staff'));

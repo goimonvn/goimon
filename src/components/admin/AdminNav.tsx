@@ -21,7 +21,7 @@ const NAV_ITEMS = [
   { href: "/admin/vat-invoices", label: "Hoá đơn VAT", icon: ReceiptText },
   { href: "/admin/feedbacks", label: "Đánh giá", icon: Star },
   { href: "/admin/staff", label: "Nhân viên", icon: Users },
-  { href: "/admin/settings", label: "Cấu hình thanh toán", icon: Settings2 },
+  { href: "/admin/settings", label: "Cấu hình", icon: Settings2 },
 ];
 
 interface AdminNavProps {

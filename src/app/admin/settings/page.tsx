@@ -87,8 +87,7 @@ function DeliverySettingsSection() {
               Kênh Giao tận nơi
             </Label>
             <p className="mt-1 text-xs text-muted-foreground">
-              Bật/tắt toàn bộ trang <code>/delivery</code> — tắt cờ này sẽ báo khách quán tạm ngưng nhận đơn
-              giao hàng, không ảnh hưởng đơn tại bàn/mang đi.
+              Bật/tắt toàn bộ trang <code>/delivery</code>.
             </p>
           </div>
         </div>
@@ -108,8 +107,7 @@ function DeliverySettingsSection() {
               Thanh toán khi nhận hàng (COD)
             </Label>
             <p className="mt-1 text-xs text-muted-foreground">
-              Cho phép khách chọn trả tiền mặt khi shipper giao hàng — tắt cờ này KHÔNG ảnh hưởng PayOS
-              (2 phương thức độc lập).
+              Cho phép khách trả tiền mặt khi nhận hàng.
             </p>
           </div>
         </div>
@@ -153,7 +151,7 @@ function DeliverySettingsSection() {
           />
         </div>
         <p className="text-xs text-muted-foreground sm:col-span-2">
-          Đơn có tổng tiền món (chưa gồm ship) từ mức &quot;Miễn phí ship từ&quot; trở lên sẽ tự động được miễn phí ship.
+          Đơn đạt mức này sẽ tự động miễn phí ship.
         </p>
       </div>
     </div>
@@ -166,14 +164,10 @@ export default function AdminSettingsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-bold">Cấu hình</h1>
+        <h1 className="text-xl font-bold">Cấu hình thanh toán</h1>
         <p className="text-sm text-muted-foreground">
           Áp dụng ngay lập tức cho màn hình khách và nhân viên, không cần deploy lại.
         </p>
-      </div>
-
-      <div>
-        <h2 className="text-xl font-bold">Cấu hình thanh toán</h2>
       </div>
 
       {loading ? (
@@ -212,7 +206,7 @@ export default function AdminSettingsPage() {
       <div>
         <h2 className="text-xl font-bold">Cấu hình Giao tận nơi</h2>
         <p className="text-sm text-muted-foreground">
-          Bật/tắt kênh giao hàng, phương thức COD và mức phí ship áp dụng ở trang <code>/delivery</code>.
+          Cài đặt cho trang <code>/delivery</code>.
         </p>
       </div>
       <DeliverySettingsSection />

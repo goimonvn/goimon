@@ -249,23 +249,33 @@ export function TableDetailSheet({
               <span className="font-bold text-primary">{formatCurrency(total)}</span>
             </div>
 
-            {/* Module 16: Màn hình phụ tại quầy — 2 nút riêng, độc lập với luồng thanh toán thủ công (PaymentConfirmSheet) bên dưới. */}
+            {/*
+              Module 16: Màn hình phụ tại quầy — 2 nút riêng, độc lập với luồng
+              thanh toán thủ công (PaymentConfirmSheet) bên dưới. Layout dọc
+              (icon trên, chữ dưới, tự xuống dòng) thay vì hàng ngang mặc định
+              của Button — nhãn "Thanh toán màn hình phụ" quá dài để nằm vừa 1
+              hàng ở khung 2 cột trên điện thoại nhỏ (từng bị tràn khỏi khối
+              nút, xem ảnh chụp lỗi lúc test thật) nếu giữ nguyên
+              `whitespace-nowrap`/chiều cao cố định mặc định của Button.
+            */}
             <div className="mb-2 grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
                 disabled={sendingToDisplay}
                 onClick={() => void handleShowOnCounterDisplay()}
+                className="h-auto min-h-11 flex-col gap-1 whitespace-normal px-2 py-2 text-center text-xs leading-tight"
               >
-                <Tv className="h-4 w-4" />
-                {sendingToDisplay ? "Đang gửi..." : "Hiện màn hình phụ"}
+                <Tv className="h-4 w-4 shrink-0" />
+                <span>{sendingToDisplay ? "Đang gửi..." : "Hiện màn hình phụ"}</span>
               </Button>
               <Button
                 variant="outline"
                 disabled={startingCounterPayment}
                 onClick={() => void handleStartCounterPayment()}
+                className="h-auto min-h-11 flex-col gap-1 whitespace-normal px-2 py-2 text-center text-xs leading-tight"
               >
-                <Zap className="h-4 w-4" />
-                {startingCounterPayment ? "Đang tạo mã..." : "Thanh toán màn hình phụ"}
+                <Zap className="h-4 w-4 shrink-0" />
+                <span>{startingCounterPayment ? "Đang tạo mã..." : "Thanh toán màn hình phụ"}</span>
               </Button>
             </div>
 

@@ -17,6 +17,7 @@ import {
   getOrderPaymentStatus,
   setOrderPaymentMethod,
 } from "@/services/order.service";
+import { usePaymentSettings } from "@/hooks/usePaymentSettings";
 import type { CreatePaymentLinkResult } from "@/types";
 import type { PaymentMethod } from "@/types/database.types";
 import { Banknote, Loader2, PartyPopper, QrCode, Zap } from "lucide-react";
@@ -65,7 +66,30 @@ export function CheckoutSheet({
   const [payosLink, setPayosLink] = useState<CreatePaymentLinkResult | null>(null);
   const playedSoundRef = useRef(false);
 
+  // Module 17: cấu hình bật/tắt phương thức thanh toán — mặc định coi như BẬT
+  // CẢ 4 (`?? true`) trong lúc đang tải/nếu lỗi (xem JSDoc DEFAULT_PAYMENT_CONFIG
+  // ở settings.service.ts), không được phép làm khách KHÔNG CÒN cách nào thanh
+  // toán chỉ vì 1 request cấu hình bị chậm/lỗi.
+  const { settings: paymentSettings } = usePaymentSettings();
+  const payosEnabled = paymentSettings?.enable_payos ?? true;
+  const staticQrEnabled = paymentSettings?.enable_static_qr ?? true;
+  const cashEnabled = paymentSettings?.enable_cash ?? true;
+  const payAtTableEnabled = paymentSettings?.enable_pay_at_table ?? true;
+  const noMethodConfigured = !payosEnabled && !payAtTableEnabled;
+
   const qrUrl = orderId ? buildVietQrUrl(totalAmount, orderId.slice(0, 8).toUpperCase()) : null;
+
+  // Tự đổi lựa chọn mặc định nếu phương thức đang chọn VỪA bị quán tắt (vd
+  // khách đang mở sẵn sheet, admin tắt "Tiền mặt" ở /admin/settings ngay lúc
+  // đó) — chỉ đổi sang phương thức còn lại đang bật, không tự ý đổi nếu
+  // phương thức khách đã chọn vẫn còn hợp lệ.
+  useEffect(() => {
+    if (method === "cash" && !cashEnabled && staticQrEnabled) {
+      setMethod("vietqr");
+    } else if (method === "vietqr" && !staticQrEnabled && cashEnabled) {
+      setMethod("cash");
+    }
+  }, [method, cashEnabled, staticQrEnabled]);
 
   function markPaidOnce() {
     setPayosStep((current) => (current === "waiting" ? "paid" : current));
@@ -201,103 +225,133 @@ export function CheckoutSheet({
                 {formatCurrency(totalAmount)}
               </p>
 
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  disabled={payosStep !== "idle"}
-                  onClick={() => setMethod("cash")}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 disabled:opacity-50 ${
-                    method === "cash" ? "border-primary bg-primary/5" : ""
-                  }`}
-                >
-                  <Banknote className="h-6 w-6" />
-                  <span className="text-sm font-medium">Tiền mặt</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={payosStep !== "idle"}
-                  onClick={() => setMethod("vietqr")}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 disabled:opacity-50 ${
-                    method === "vietqr" ? "border-primary bg-primary/5" : ""
-                  }`}
-                >
-                  <QrCode className="h-6 w-6" />
-                  <span className="text-sm font-medium">Chuyển khoản</span>
-                </button>
-              </div>
-
-              {method === "vietqr" && payosStep === "waiting" && payosLink && (
-                <div className="flex flex-col items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-4">
-                  <Image
-                    src={payosLink.qrImageUrl}
-                    alt="Mã VietQR thanh toán tự động"
-                    width={240}
-                    height={240}
-                    unoptimized
-                  />
-                  <p className="flex items-center gap-1.5 text-sm font-medium text-primary">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Đang chờ xác nhận thanh toán tự động...
-                  </p>
-                  <p className="text-center text-xs text-muted-foreground">
-                    Quét mã bằng app ngân hàng bất kỳ — màn hình sẽ TỰ chuyển khi nhận được tiền,
-                    không cần báo nhân viên.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPayosStep("idle");
-                      setPayosLink(null);
-                    }}
-                    className="text-xs text-muted-foreground underline underline-offset-2"
-                  >
-                    Huỷ, quay lại
-                  </button>
+              {/*
+                Module 17: 2 đường thanh toán ĐỘC LẬP, mỗi đường tự ẩn/hiện
+                theo đúng cấu hình ở /admin/settings — KHÔNG còn gộp chung vào
+                lựa chọn "phương thức" như bản cũ (PayOS trước đây chỉ hiện khi
+                khách chọn tile "Chuyển khoản", nay hiện ngay khi quán bật, bất
+                kể khách sẽ chọn tile nào bên dưới):
+                  1. PayOS tự động (payosEnabled) — mã QR ĐỘNG, tự đổi trạng thái.
+                  2. "Thanh toán tại bàn" (payAtTableEnabled) — khách chọn tiền
+                     mặt/VietQR TĨNH rồi bấm "Yêu cầu thanh toán" để nhân viên
+                     ra xử lý thủ công (PaymentConfirmSheet).
+              */}
+              {payosEnabled && (
+                <div className="space-y-2">
+                  {payosStep === "waiting" && payosLink ? (
+                    <div className="flex flex-col items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-4">
+                      <Image
+                        src={payosLink.qrImageUrl}
+                        alt="Mã VietQR thanh toán tự động"
+                        width={240}
+                        height={240}
+                        unoptimized
+                      />
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-primary">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Đang chờ xác nhận thanh toán tự động...
+                      </p>
+                      <p className="text-center text-xs text-muted-foreground">
+                        Quét mã bằng app ngân hàng bất kỳ — màn hình sẽ TỰ chuyển khi nhận được tiền,
+                        không cần báo nhân viên.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayosStep("idle");
+                          setPayosLink(null);
+                        }}
+                        className="text-xs text-muted-foreground underline underline-offset-2"
+                      >
+                        Huỷ, quay lại
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="default"
+                      className="w-full"
+                      disabled={payosStep === "creating"}
+                      onClick={() => void handleCreatePayosLink()}
+                    >
+                      <Zap className="h-4 w-4" />
+                      {payosStep === "creating" ? "Đang tạo mã..." : "Thanh toán tự động qua VietQR"}
+                    </Button>
+                  )}
                 </div>
               )}
 
-              {method === "vietqr" && (payosStep === "idle" || payosStep === "creating") && (
+              {payosEnabled && payAtTableEnabled && payosStep !== "waiting" && (cashEnabled || staticQrEnabled) && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="h-px flex-1 bg-border" />
+                  hoặc chuyển khoản thủ công, nhờ nhân viên xác nhận
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+              )}
+
+              {payAtTableEnabled && payosStep !== "waiting" && (
                 <>
-                  <Button
-                    variant="default"
-                    className="w-full"
-                    disabled={payosStep === "creating"}
-                    onClick={() => void handleCreatePayosLink()}
-                  >
-                    <Zap className="h-4 w-4" />
-                    {payosStep === "creating" ? "Đang tạo mã..." : "Thanh toán tự động qua VietQR"}
-                  </Button>
-
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="h-px flex-1 bg-border" />
-                    hoặc chuyển khoản thủ công, nhờ nhân viên xác nhận
-                    <div className="h-px flex-1 bg-border" />
-                  </div>
-
-                  {qrUrl ? (
-                    <div className="flex flex-col items-center gap-2 rounded-xl border p-4">
-                      <Image
-                        src={qrUrl}
-                        alt="Mã VietQR thanh toán"
-                        width={220}
-                        height={220}
-                        unoptimized
-                      />
-                      <p className="text-center text-xs text-muted-foreground">
-                        Quét mã bằng app ngân hàng bất kỳ để chuyển khoản đúng số tiền.
-                      </p>
+                  {(cashEnabled || staticQrEnabled) && (
+                    <div className={`grid gap-3 ${cashEnabled && staticQrEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
+                      {cashEnabled && (
+                        <button
+                          type="button"
+                          onClick={() => setMethod("cash")}
+                          className={`flex flex-col items-center gap-2 rounded-xl border p-4 ${
+                            method === "cash" ? "border-primary bg-primary/5" : ""
+                          }`}
+                        >
+                          <Banknote className="h-6 w-6" />
+                          <span className="text-sm font-medium">Tiền mặt</span>
+                        </button>
+                      )}
+                      {staticQrEnabled && (
+                        <button
+                          type="button"
+                          onClick={() => setMethod("vietqr")}
+                          className={`flex flex-col items-center gap-2 rounded-xl border p-4 ${
+                            method === "vietqr" ? "border-primary bg-primary/5" : ""
+                          }`}
+                        >
+                          <QrCode className="h-6 w-6" />
+                          <span className="text-sm font-medium">Chuyển khoản</span>
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <p className="rounded-xl border border-dashed p-4 text-center text-xs text-muted-foreground">
-                      Quán chưa cấu hình tài khoản nhận VietQR. Vui lòng thanh toán tiền mặt hoặc hỏi
-                      nhân viên.
-                    </p>
+                  )}
+
+                  {method === "vietqr" && staticQrEnabled && (
+                    qrUrl ? (
+                      <div className="flex flex-col items-center gap-2 rounded-xl border p-4">
+                        <Image
+                          src={qrUrl}
+                          alt="Mã VietQR thanh toán"
+                          width={220}
+                          height={220}
+                          unoptimized
+                        />
+                        <p className="text-center text-xs text-muted-foreground">
+                          Quét mã bằng app ngân hàng bất kỳ để chuyển khoản đúng số tiền.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="rounded-xl border border-dashed p-4 text-center text-xs text-muted-foreground">
+                        Quán chưa cấu hình tài khoản nhận VietQR. Vui lòng thanh toán tiền mặt hoặc hỏi
+                        nhân viên.
+                      </p>
+                    )
                   )}
                 </>
               )}
+
+              {noMethodConfigured && (
+                <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  Quán chưa bật phương thức thanh toán nào tại đây. Vui lòng đóng bảng này và bấm
+                  &quot;Gọi nhân viên&quot; để được hỗ trợ trực tiếp.
+                </p>
+              )}
             </div>
 
-            {(payosStep === "idle" || payosStep === "creating") && (
+            {payAtTableEnabled && payosStep !== "waiting" && (
               <SheetFooter className="border-t bg-background">
                 <Button
                   size="lg"

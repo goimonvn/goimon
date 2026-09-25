@@ -213,6 +213,39 @@ export interface ShopSettingsRow {
 }
 
 /**
+ * Hình dạng giá trị JSONB của dòng `system_settings` key='payment_config'
+ * (Module 17) — bật/tắt từng phương thức thanh toán độc lập:
+ *   - enable_payos: Thanh toán tự động qua PayOS (mã QR động, Module 15).
+ *   - enable_static_qr: Mã VietQR TĨNH (Module 1/2, `lib/vietqr.ts`) — hiển
+ *     thị cho khách tự quét ở `CheckoutSheet` VÀ cho nhân viên chìa cho khách
+ *     quét trực tiếp ở `PaymentConfirmSheet`.
+ *   - enable_cash: cho phép chọn/xác nhận thanh toán bằng tiền mặt.
+ *   - enable_pay_at_table: cho phép khách gửi "Yêu cầu thanh toán" để nhân
+ *     viên ra xử lý thủ công tại bàn (tắt cờ này KHÔNG ảnh hưởng luồng PayOS
+ *     tự động — đó là 2 con đường độc lập, xem CheckoutSheet.tsx).
+ */
+export interface PaymentConfigValue {
+  enable_payos: boolean;
+  enable_static_qr: boolean;
+  enable_cash: boolean;
+  enable_pay_at_table: boolean;
+}
+
+/**
+ * 1 dòng cấu hình hệ thống dạng key/value (Module 17) — bảng `system_settings`
+ * có thể chứa nhiều `key` khác nhau trong tương lai, nhưng ứng dụng HIỆN TẠI
+ * chỉ đọc/ghi đúng 1 key ('payment_config') nên ép kiểu `value` cụ thể luôn
+ * thành `PaymentConfigValue` thay vì kiểu JSON tổng quát — đơn giản hơn cho
+ * đúng 1 mục đích sử dụng hiện tại (xem settings.service.ts). Nếu sau này
+ * thêm key khác với hình dạng value khác, cân nhắc đổi sang generic/union.
+ */
+export interface SystemSettingsRow {
+  key: string;
+  value: PaymentConfigValue;
+  updated_at: string;
+}
+
+/**
  * Một ca làm việc (Module 8). `final_cash`/tổng doanh thu là null/0 cho tới
  * khi ca bị đóng (`status = 'closed'`) — chỉ được tính MỘT LẦN bởi hàm
  * `close_shift` lúc "Kết thúc ca" (xem ghi chú trong schema.sql), không cập
@@ -461,6 +494,11 @@ export interface Database {
         ShopSettingsRow,
         ShopSettingsRow,
         Partial<Omit<ShopSettingsRow, "id">>
+      >;
+      system_settings: TableDefinition<
+        SystemSettingsRow,
+        Omit<SystemSettingsRow, "updated_at"> & Partial<Pick<SystemSettingsRow, "updated_at">>,
+        Partial<Omit<SystemSettingsRow, "key">>
       >;
       shifts: TableDefinition<
         ShiftsRow,

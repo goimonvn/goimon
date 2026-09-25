@@ -1321,7 +1321,7 @@ alter table orders add constraint orders_table_id_required_check
   check ((order_type = 'dine_in' and table_id is not null) or (order_type = 'takeaway'));
 
 -- Bật Realtime (Supabase Dashboard > Database > Replication), hoặc chạy:
--- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses, zones;
+-- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses, zones, system_settings;
 
 -- ============================================================================
 -- Module 15 — Tự động xác nhận Thanh toán VietQR qua Webhook PayOS
@@ -1508,3 +1508,63 @@ begin
   returning o.id, o.table_id, t.table_number, o.customer_id, o.total_amount;
 end;
 $$;
+
+-- ============================================================================
+-- Module 17 — Cấu hình Linh hoạt Phương thức Thanh toán
+-- (Dynamic Payment Settings)
+--
+-- Bài toán: trước module này, quán KHÔNG có cách nào tắt bớt 1 phương thức
+-- thanh toán theo nhu cầu vận hành (vd tạm tắt PayOS lúc tài khoản PayOS gặp
+-- sự cố, hoặc quán nhỏ chỉ muốn dùng tiền mặt + VietQR tĩnh, không cần tự
+-- động hoá) — mọi phương thức (PayOS Module 15, VietQR tĩnh + tiền mặt Module
+-- 1/2) đều LUÔN bật cứng trong code.
+--
+-- Bảng `system_settings` dùng kiểu "key/value" (KHÁC `shop_settings` — Module
+-- 6, vốn là singleton 1-cột-1-cờ) vì đây là bảng cấu hình TỔNG QUÁT có thể mở
+-- rộng thêm nhiều nhóm cấu hình khác trong tương lai (mỗi nhóm 1 `key`, giá
+-- trị JSONB tự do) mà không cần `alter table` thêm cột mỗi lần — key duy nhất
+-- đang dùng hiện tại là 'payment_config'.
+--
+-- CHỈ ẢNH HƯỞNG GIAO DIỆN client tự ẩn/hiện lựa chọn thanh toán — KHÔNG thêm
+-- ràng buộc gì ở tầng RLS/RPC cho `orders.payment_method`: nếu admin vừa tắt
+-- 1 phương thức TRONG LÚC khách đang xem sẵn màn hình thanh toán cũ, request
+-- gửi lên vẫn được server chấp nhận bình thường (giống triết lý "không chặn
+-- luồng thanh toán chính" đã áp dụng xuyên suốt dự án, vd Module 9/15) — đây
+-- là công tắc ĐIỀU HƯỚNG vận hành, không phải công tắc BẢO MẬT.
+-- ============================================================================
+
+create table if not exists system_settings (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+-- Seed đúng 1 dòng cấu hình thanh toán, mặc định BẬT CẢ 4 (giữ nguyên hành vi
+-- hiện có của quán cho tới khi chủ quán chủ động vào /admin/settings tắt bớt).
+insert into system_settings (key, value) values (
+  'payment_config',
+  jsonb_build_object(
+    'enable_payos', true,
+    'enable_static_qr', true,
+    'enable_cash', true,
+    'enable_pay_at_table', true
+  )
+) on conflict (key) do nothing;
+
+alter table system_settings enable row level security;
+
+-- ---- system_settings: đọc CÔNG KHAI (kể cả khách anon chưa đăng nhập) vì
+--      trang gọi món/thanh toán của khách (`/order/status`, KHÔNG đăng nhập)
+--      cần đọc được cấu hình này để tự ẩn/hiện đúng phương thức — giống policy
+--      "Public read categories/menu_items" đã có từ Module 1 (không khai báo
+--      `to authenticated` nghĩa là áp dụng cho MỌI role, kể cả anon). CHỈ admin
+--      được sửa — không cấp insert/delete qua ứng dụng, dòng 'payment_config'
+--      đã được seed sẵn ở trên (giống shop_settings, Module 6). ----
+drop policy if exists "Public read system_settings" on system_settings;
+create policy "Public read system_settings" on system_settings for select using (true);
+
+drop policy if exists "Admin update system_settings" on system_settings;
+create policy "Admin update system_settings" on system_settings for update
+  to authenticated
+  using (public.current_user_role() = 'admin')
+  with check (public.current_user_role() = 'admin');

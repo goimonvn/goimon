@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sheet";
 import { getPrinterSettings } from "@/lib/printerSettings";
 import { formatCurrency } from "@/lib/utils";
+import { usePaymentSettings } from "@/hooks/usePaymentSettings";
 import { broadcastCounterDisplayEvent } from "@/services/counterDisplay.service";
 import { createPayosPaymentLink } from "@/services/order.service";
 import { buildReceiptData, printReceiptDirect } from "@/services/print.service";
@@ -46,6 +47,12 @@ export function TableDetailSheet({
   // Module 16: gửi tín hiệu qua Broadcast tới Màn hình phụ tại quầy.
   const [sendingToDisplay, setSendingToDisplay] = useState(false);
   const [startingCounterPayment, setStartingCounterPayment] = useState(false);
+  // Module 17: nút "Thanh toán màn hình phụ" cũng tạo link PayOS giống
+  // CheckoutSheet — ẩn luôn nếu quán đã tắt "Thanh toán Tự động PayOS" ở
+  // /admin/settings, tránh để lại 1 đường tạo link PayOS khác không bị tắt
+  // theo cùng cấu hình (fail-open `?? true` khi đang tải/lỗi).
+  const { settings: paymentSettings } = usePaymentSettings();
+  const payosEnabled = paymentSettings?.enable_payos ?? true;
 
   const total = table?.activeOrders.reduce((sum, o) => sum + o.total_amount, 0) ?? 0;
 
@@ -258,7 +265,7 @@ export function TableDetailSheet({
               nút, xem ảnh chụp lỗi lúc test thật) nếu giữ nguyên
               `whitespace-nowrap`/chiều cao cố định mặc định của Button.
             */}
-            <div className="mb-2 grid grid-cols-2 gap-2">
+            <div className={`mb-2 grid gap-2 ${payosEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
               <Button
                 variant="outline"
                 disabled={sendingToDisplay}
@@ -268,15 +275,18 @@ export function TableDetailSheet({
                 <Tv className="h-4 w-4 shrink-0" />
                 <span>{sendingToDisplay ? "Đang gửi..." : "Hiện màn hình phụ"}</span>
               </Button>
-              <Button
-                variant="outline"
-                disabled={startingCounterPayment}
-                onClick={() => void handleStartCounterPayment()}
-                className="h-auto min-h-11 flex-col gap-1 whitespace-normal px-2 py-2 text-center text-xs leading-tight"
-              >
-                <Zap className="h-4 w-4 shrink-0" />
-                <span>{startingCounterPayment ? "Đang tạo mã..." : "Thanh toán màn hình phụ"}</span>
-              </Button>
+              {/* Module 17: chỉ hiện khi quán còn bật "Thanh toán Tự động PayOS" ở /admin/settings — xem ghi chú payosEnabled bên trên. */}
+              {payosEnabled && (
+                <Button
+                  variant="outline"
+                  disabled={startingCounterPayment}
+                  onClick={() => void handleStartCounterPayment()}
+                  className="h-auto min-h-11 flex-col gap-1 whitespace-normal px-2 py-2 text-center text-xs leading-tight"
+                >
+                  <Zap className="h-4 w-4 shrink-0" />
+                  <span>{startingCounterPayment ? "Đang tạo mã..." : "Thanh toán màn hình phụ"}</span>
+                </Button>
+              )}
             </div>
 
             <div className="grid grid-cols-[auto_1fr_1fr] gap-2">

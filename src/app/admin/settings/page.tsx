@@ -34,29 +34,25 @@ const SETTING_ROWS: SettingToggleRow[] = [
     key: "enable_payos",
     icon: Zap,
     label: "Thanh toán Tự động PayOS",
-    description:
-      "Mã VietQR ĐỘNG tự đổi trạng thái khi khách chuyển khoản xong (Module 15) — không cần khách bấm xác nhận, không cần nhân viên thao tác. Tắt cờ này sẽ ẩn nút này ở cả màn khách và nút \"Thanh toán màn hình phụ\" của nhân viên.",
+    description: "QR động, hệ thống tự xác nhận ngay khi khách chuyển khoản.",
   },
   {
     key: "enable_static_qr",
     icon: QrCode,
     label: "Mã VietQR Cố định",
-    description:
-      "Mã QR TĨNH dựng từ số tài khoản đã cấu hình trong .env.local (không tự đổi trạng thái, nhân viên xác nhận bằng mắt) — hiện ở màn khách (chuyển khoản thủ công) và màn nhân viên xác nhận thanh toán tại bàn.",
+    description: "QR tĩnh, nhân viên tự xác nhận thanh toán bằng mắt.",
   },
   {
     key: "enable_cash",
     icon: Banknote,
     label: "Thanh toán Tiền mặt",
-    description:
-      "Cho phép chọn/xác nhận thanh toán bằng tiền mặt — ở cả màn khách chọn phương thức lẫn nút \"Xác nhận đã nhận Tiền mặt\" của nhân viên.",
+    description: "Cho phép thanh toán bằng tiền mặt.",
   },
   {
     key: "enable_pay_at_table",
     icon: Wallet,
     label: "Yêu cầu Thanh toán tại bàn",
-    description:
-      "Cho phép khách gửi \"Yêu cầu thanh toán\" để nhân viên ra xử lý thủ công tại bàn (chọn tiền mặt/chuyển khoản thủ công bên trên). Tắt cờ này KHÔNG ảnh hưởng luồng PayOS tự động — đó là đường thanh toán độc lập, khách vẫn tự thanh toán được qua PayOS nếu cờ đó còn bật.",
+    description: "Khách gửi yêu cầu để nhân viên ra xử lý thanh toán tại bàn.",
   },
 ];
 
@@ -170,11 +166,14 @@ export default function AdminSettingsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-bold">Cấu hình thanh toán</h1>
+        <h1 className="text-xl font-bold">Cấu hình</h1>
         <p className="text-sm text-muted-foreground">
-          Bật/tắt từng phương thức thanh toán theo nhu cầu vận hành của quán — áp dụng ngay lập tức cho cả
-          màn hình khách và màn hình nhân viên, không cần deploy lại.
+          Áp dụng ngay lập tức cho màn hình khách và nhân viên, không cần deploy lại.
         </p>
+      </div>
+
+      <div>
+        <h2 className="text-xl font-bold">Cấu hình thanh toán</h2>
       </div>
 
       {loading ? (

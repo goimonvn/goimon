@@ -15,8 +15,32 @@ function isPayosWebhookBody(value: unknown): value is PayOSWebhookBody {
   return typeof body.code === "string" && typeof body.signature === "string";
 }
 
-/** Gửi Telegram trực tiếp (server-to-server) — KHÔNG qua /api/notify/telegram vì route đó chỉ nhận request từ CLIENT (trình duyệt), ở đây webhook PayOS gọi thẳng server, không có "trình duyệt" nào để tự fetch route nội bộ. Fire-and-forget, không bao giờ ném lỗi ra ngoài (giống mọi thông báo Telegram khác trong dự án). */
-function notifyPayosPaymentSuccessTelegram(tableNumber: number, settledAmount: number, orderCount: number): void {
+/**
+ * Gửi Telegram trực tiếp (server-to-server) — KHÔNG qua /api/notify/telegram vì
+ * route đó chỉ nhận request từ CLIENT (trình duyệt), ở đây webhook PayOS gọi
+ * thẳng server, không có "trình duyệt" nào để tự fetch route nội bộ.
+ *
+ * BẮT BUỘC PHẢI `await` (khác với mọi thông báo Telegram khác trong dự án,
+ * vốn "bắn rồi quên" `void fetch(...)` vì được gọi TỪ TRÌNH DUYỆT của khách —
+ * trình duyệt vẫn đang mở nên request luôn có đủ thời gian chạy xong). Ở ĐÂY
+ * hàm này chạy trong 1 serverless function (Route Handler xử lý webhook) —
+ * Vercel có thể đóng băng/kết thúc function ngay sau khi trả response, cắt
+ * ngang bất kỳ `fetch` nào chưa kịp await xong. Vì vậy PHẢI await xong việc
+ * gửi Telegram TRƯỚC KHI trả response ở POST bên dưới, nếu không tin nhắn có
+ * thể gửi được có lúc không tuỳ Vercel đóng function nhanh hay chậm — đã gặp
+ * đúng lỗi này khi test thật (thanh toán xác nhận đúng nhưng Telegram không
+ * tới, dù 2 biến TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID đã cấu hình đúng, xác
+ * nhận qua các thông báo Telegram khác vẫn hoạt động bình thường).
+ *
+ * Vẫn không bao giờ NÉM lỗi ra ngoài (bọc try/catch) — 1 request Telegram
+ * lỗi/timeout không được phép làm webhook trả về khác 2xx, vì PayOS sẽ hiểu
+ * nhầm là lỗi xử lý thanh toán rồi gọi lại liên tục.
+ */
+async function notifyPayosPaymentSuccessTelegram(
+  tableNumber: number,
+  settledAmount: number,
+  orderCount: number
+): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
@@ -26,13 +50,15 @@ function notifyPayosPaymentSuccessTelegram(tableNumber: number, settledAmount: n
     `Bàn ${tableNumber} — ${orderCount} đơn — Số tiền: ${Math.round(settledAmount).toLocaleString("vi-VN")}đ qua VietQR`,
   ].join("\n");
 
-  void fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-  }).catch(() => {
-    // Bỏ qua lặng lẽ — xem giải thích ở telegram.service.ts, thông báo Telegram không được phép chặn luồng chính.
-  });
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    });
+  } catch {
+    // Bỏ qua lặng lẽ — xem giải thích ở JSDoc hàm này.
+  }
 }
 
 /**
@@ -134,7 +160,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       })
   );
 
-  notifyPayosPaymentSuccessTelegram(tableNumber, settledAmount, rows.length);
+  // await ở đây — xem giải thích chi tiết trong JSDoc của hàm, đây LÀ điểm
+  // khác biệt bắt buộc so với các thông báo Telegram "bắn rồi quên" khác.
+  await notifyPayosPaymentSuccessTelegram(tableNumber, settledAmount, rows.length);
 
   return NextResponse.json({ ok: true, tableNumber, settledOrderCount: rows.length, settledAmount });
 }

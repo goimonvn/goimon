@@ -13,6 +13,7 @@ import {
 import type {
   OrderItemStatus,
   OrdersRow,
+  OrderType,
   PaymentMethod,
   StationType,
 } from "@/types/database.types";
@@ -249,7 +250,7 @@ export async function getStationQueue(station: StationType): Promise<KdsTicket[]
   const { data, error } = await supabase
     .from("order_items")
     .select(
-      "id, order_id, menu_item_id, quantity, notes, item_status, station_type, combo_name, created_at, menu_item:menu_items(name), order:orders(table:tables(table_number))"
+      "id, order_id, menu_item_id, quantity, notes, item_status, station_type, combo_name, created_at, menu_item:menu_items(name), order:orders(order_type, table:tables(table_number))"
     )
     .eq("station_type", station)
     .in("item_status", ["pending", "preparing", "ready"])
@@ -270,7 +271,7 @@ export async function getStationQueue(station: StationType): Promise<KdsTicket[]
     combo_name: string | null;
     created_at: string;
     menu_item: { name: string } | null;
-    order: { table: { table_number: number } | null } | null;
+    order: { order_type: OrderType; table: { table_number: number } | null } | null;
   };
 
   return ((data ?? []) as unknown as RawRow[]).map((row) => ({
@@ -284,6 +285,10 @@ export async function getStationQueue(station: StationType): Promise<KdsTicket[]
     item_status: row.item_status,
     station_type: row.station_type,
     combo_name: row.combo_name,
+    // Module 19: mặc định 'takeaway' cho dữ liệu hiếm khi thiếu embed (không
+    // nên xảy ra trên thực tế) — an toàn hơn để trống/undefined vì KdsItemCard
+    // chỉ dùng field này để CHỌN NHÃN hiển thị, không dùng cho nghiệp vụ.
+    order_type: row.order?.order_type ?? "takeaway",
     created_at: row.created_at,
   }));
 }

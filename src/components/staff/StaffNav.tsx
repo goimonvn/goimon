@@ -4,7 +4,7 @@ import { LogoutButton } from "@/components/shared/LogoutButton";
 import { cn } from "@/lib/utils";
 import { USER_ROLE_LABEL } from "@/types";
 import type { ProfilesRow } from "@/types/database.types";
-import { CalendarClock, ChefHat, LayoutGrid, Utensils } from "lucide-react";
+import { Bike, CalendarClock, ChefHat, LayoutGrid, Utensils } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShiftControl } from "./ShiftControl";
@@ -12,6 +12,7 @@ import { ShiftControl } from "./ShiftControl";
 const NAV_ITEMS = [
   { href: "/staff/tables", label: "Quản lý bàn", icon: LayoutGrid },
   { href: "/staff/reservations", label: "Đặt bàn", icon: CalendarClock },
+  { href: "/staff/orders", label: "Đơn giao hàng", icon: Bike },
   { href: "/staff/kds", label: "Bếp / Pha chế", icon: ChefHat },
   { href: "/staff/menu-control", label: "Hết món nhanh", icon: Utensils },
 ];

@@ -101,3 +101,36 @@ export function notifyLowStockTelegram(
 ): void {
   postTelegramNotification({ type: "low_stock", ingredientName, stockQuantity, unit, minThreshold });
 }
+
+/**
+ * Báo quán có đơn GIAO TẬN NƠI mới (Module 19) — CHỈ dùng cho đơn COD (gọi
+ * ngay lúc tạo đơn, xem delivery.service.ts#createDeliveryOrder). Đơn trả qua
+ * PayOS bắn Telegram theo đường KHÁC — server-to-server thẳng từ webhook (xem
+ * `/api/webhooks/payos/route.ts`), không qua hàm "bắn rồi quên" này vì webhook
+ * không chạy trong trình duyệt khách.
+ */
+/** Khách bấm "Liên hệ hỗ trợ" ở trang theo dõi đơn giao hàng (Module 19) — xem TelegramNotifyPayload. */
+export function notifyDeliverySupportRequestTelegram(orderId: string, recipientPhone: string): void {
+  postTelegramNotification({ type: "delivery_support_request", orderId, recipientPhone });
+}
+
+export function notifyNewDeliveryOrderTelegram(
+  recipientName: string,
+  recipientPhone: string,
+  deliveryAddress: string,
+  deliveryNotes: string | null,
+  items: TelegramOrderItemSummary[],
+  itemsTotal: number,
+  shippingFee: number
+): void {
+  postTelegramNotification({
+    type: "new_delivery_order",
+    recipientName,
+    recipientPhone,
+    deliveryAddress,
+    deliveryNotes,
+    items,
+    itemsTotal,
+    shippingFee,
+  });
+}

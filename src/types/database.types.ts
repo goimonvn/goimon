@@ -9,12 +9,14 @@ export type TableStatus = "available" | "occupied" | "payment_pending" | "needs_
 /** Hình dạng bàn (Module 13) — CHỈ ảnh hưởng hiển thị ở sơ đồ bàn, không ảnh hưởng nghiệp vụ. */
 export type TableShape = "square" | "round" | "rectangle";
 export type OrderStatus = "pending" | "preparing" | "completed" | "cancelled";
-/** Module 13: 'dine_in' (mặc định, hành vi cũ — luôn gắn table_id) hoặc 'takeaway' (mang đi, table_id null). */
-export type OrderType = "dine_in" | "takeaway";
+/** Module 13: 'dine_in' (mặc định, hành vi cũ — luôn gắn table_id) hoặc 'takeaway' (mang đi, table_id null). Module 19 thêm 'delivery' (giao tận nơi, table_id null — giống takeaway nhưng có địa chỉ/người nhận riêng, xem OrdersRow). */
+export type OrderType = "dine_in" | "takeaway" | "delivery";
 export type OrderItemStatus = "pending" | "preparing" | "ready" | "served";
 export type StationType = "bar" | "kitchen";
-/** Module 15: 'transfer' (cũ) đã đổi tên thành 'vietqr' — dùng chung cho cả chuyển khoản do nhân viên tự xác nhận LẪN thanh toán tự động qua PayOS (phân biệt bằng payment_order_code khác null hay không, xem ghi chú migration ở schema.sql). */
-export type PaymentMethod = "cash" | "vietqr";
+/** Module 15: 'transfer' (cũ) đã đổi tên thành 'vietqr' — dùng chung cho cả chuyển khoản do nhân viên tự xác nhận LẪN thanh toán tự động qua PayOS (phân biệt bằng payment_order_code khác null hay không, xem ghi chú migration ở schema.sql). Module 19 thêm 'cod' (thu tiền mặt khi giao hàng) — CỐ Ý KHÔNG thêm 'payos_qr' riêng cho delivery, đơn giao hàng trả qua PayOS vẫn dùng 'vietqr' để không lệch báo cáo doanh thu hiện có, xem ghi chú Module 19 ở schema.sql. */
+export type PaymentMethod = "cash" | "vietqr" | "cod";
+/** Vòng đời giao hàng của đơn delivery (Module 19) — TÁCH RIÊNG khỏi `OrderStatus` (bếp/thanh toán), xem giải thích đầy đủ ở schema.sql Module 19. */
+export type DeliveryStatus = "pending" | "preparing" | "delivering" | "completed" | "cancelled";
 /** Module 15: thêm 'failed' (PayOS báo giao dịch lỗi) và 'refunded' (dự phòng, chưa có luồng hoàn tiền tự động) — 'unpaid'/'paid' giữ nguyên hành vi cũ. */
 export type PaymentStatus = "unpaid" | "paid" | "failed" | "refunded";
 export type StaffCallRequestType = "call_staff" | "need_ice" | "checkout";
@@ -110,6 +112,18 @@ export interface OrdersRow {
   customer_name: string | null;
   /** SĐT khách đặt mang đi — null cho đơn dine_in — Module 13. */
   customer_phone: string | null;
+  /** Tên người NHẬN hàng — chỉ có ở đơn delivery, null cho dine_in/takeaway (đơn takeaway dùng customer_name/customer_phone của người ĐẶT, không cần tách riêng vì tự tới lấy) — Module 19. */
+  recipient_name: string | null;
+  /** SĐT người nhận hàng — chỉ có ở đơn delivery — Module 19. */
+  recipient_phone: string | null;
+  /** Địa chỉ giao hàng — chỉ có ở đơn delivery — Module 19. */
+  delivery_address: string | null;
+  /** Ghi chú giao hàng (vd "gọi trước khi tới", tầng/căn hộ...) — chỉ có ở đơn delivery, khác `order_items.notes` (ghi chú CHO TỪNG MÓN) — Module 19. */
+  delivery_notes: string | null;
+  /** Phí ship — CỘNG THÊM vào `total_amount` (total_amount vẫn chỉ là tiền món, xem delivery.service.ts#createDeliveryOrder) — 0 cho đơn không phải delivery — Module 19. */
+  shipping_fee: number;
+  /** Vòng đời giao hàng — TÁCH RIÊNG khỏi `status` (xem DeliveryStatus + ghi chú Module 19 ở schema.sql), mặc định 'pending' cho MỌI đơn (chỉ có ý nghĩa với delivery). */
+  delivery_status: DeliveryStatus;
   created_at: string;
 }
 
@@ -240,16 +254,40 @@ export interface PaymentConfigValue {
 }
 
 /**
- * 1 dòng cấu hình hệ thống dạng key/value (Module 17) — bảng `system_settings`
- * có thể chứa nhiều `key` khác nhau trong tương lai, nhưng ứng dụng HIỆN TẠI
- * chỉ đọc/ghi đúng 1 key ('payment_config') nên ép kiểu `value` cụ thể luôn
- * thành `PaymentConfigValue` thay vì kiểu JSON tổng quát — đơn giản hơn cho
- * đúng 1 mục đích sử dụng hiện tại (xem settings.service.ts). Nếu sau này
- * thêm key khác với hình dạng value khác, cân nhắc đổi sang generic/union.
+ * Hình dạng giá trị JSONB của dòng `system_settings` key='delivery_config'
+ * (Module 19) — cấu hình kênh Giao tận nơi:
+ *   - enable_delivery: bật/tắt TOÀN BỘ kênh `/delivery` (tắt = trang báo quán
+ *     tạm ngưng nhận đơn giao hàng).
+ *   - enable_cod: cho phép chọn "Thanh toán khi nhận hàng" — tắt cờ này KHÔNG
+ *     ảnh hưởng PayOS (2 phương thức độc lập, giống enable_payos/enable_cash
+ *     của payment_config).
+ *   - base_shipping_fee: phí ship mặc định (đ) — xem
+ *     delivery.service.ts#calculateShippingFee.
+ *   - free_shipping_threshold: đơn có tổng tiền MÓN (chưa gồm ship) từ mức
+ *     này trở lên được miễn phí ship.
+ *   - max_delivery_distance_km: NGƯỠNG THAM KHẢO hiển thị cho chủ quán, hiện
+ *     CHƯA dùng để tính toán/chặn gì (chưa có bước nhập toạ độ/khoảng cách
+ *     thật) — để sẵn cho mở rộng sau, tránh phải migrate thêm cột khi cần.
+ */
+export interface DeliveryConfigValue {
+  enable_delivery: boolean;
+  enable_cod: boolean;
+  base_shipping_fee: number;
+  free_shipping_threshold: number;
+  max_delivery_distance_km: number;
+}
+
+/**
+ * 1 dòng cấu hình hệ thống dạng key/value (Module 17, mở rộng Module 19) —
+ * bảng `system_settings` giờ chứa 2 `key` ('payment_config' và
+ * 'delivery_config' — xem PaymentConfigValue/DeliveryConfigValue), nên `value`
+ * ép kiểu union thay vì chỉ `PaymentConfigValue` như bản Module 17 gốc. Mỗi
+ * service (settings.service.ts / delivery.service.ts) tự ép kiểu hẹp đúng
+ * hình dạng của key nó đọc — xem ghi chú tại từng nơi gọi.
  */
 export interface SystemSettingsRow {
   key: string;
-  value: PaymentConfigValue;
+  value: PaymentConfigValue | DeliveryConfigValue;
   updated_at: string;
 }
 
@@ -285,11 +323,18 @@ export interface CloseShiftResultRow extends ShiftsRow {
   order_count: number;
 }
 
-/** 1 dòng / 1 đơn vừa được RPC `confirm_payos_payment` chốt thanh toán (Module 15) — webhook dùng để cộng điểm thưởng + dựng nội dung Telegram, xem ghi chú đầy đủ ở schema.sql. */
+/**
+ * 1 dòng / 1 đơn vừa được RPC `confirm_payos_payment` chốt thanh toán (Module
+ * 15) — webhook dùng để cộng điểm thưởng + dựng nội dung Telegram, xem ghi
+ * chú đầy đủ ở schema.sql. `table_id`/`table_number` là `null` cho đơn giao
+ * hàng (Module 19, nhánh delivery không gộp theo bàn) — webhook dùng đúng
+ * tín hiệu `table_id === null` để biết cần bắn Telegram kiểu "ĐƠN SHIP MỚI"
+ * thay vì "ĐÃ NHẬN TIỀN theo bàn", xem route.ts.
+ */
 export interface ConfirmPayosPaymentResultRow {
   order_id: string;
-  table_id: string;
-  table_number: number;
+  table_id: string | null;
+  table_number: number | null;
   customer_id: string | null;
   total_amount: number;
 }
@@ -445,6 +490,12 @@ export interface Database {
           | "pickup_time"
           | "customer_name"
           | "customer_phone"
+          | "recipient_name"
+          | "recipient_phone"
+          | "delivery_address"
+          | "delivery_notes"
+          | "shipping_fee"
+          | "delivery_status"
         > &
           Partial<
             Pick<
@@ -463,6 +514,12 @@ export interface Database {
               | "pickup_time"
               | "customer_name"
               | "customer_phone"
+              | "recipient_name"
+              | "recipient_phone"
+              | "delivery_address"
+              | "delivery_notes"
+              | "shipping_fee"
+              | "delivery_status"
             >
           >,
         Partial<Omit<OrdersRow, "id" | "created_at">>

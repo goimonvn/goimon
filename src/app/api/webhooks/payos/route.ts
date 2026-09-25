@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { calculatePointsEarned } from "@/lib/loyalty";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhookSignature } from "@/services/payos.service";
-import type { ConfirmPayosPaymentResultRow } from "@/types/database.types";
+import type { ConfirmPayosPaymentResultRow, OrdersRow } from "@/types/database.types";
 import type { PayOSWebhookBody } from "@/types";
 
 // Cần "crypto" (payos.service) + gọi Telegram API — Node.js runtime, giống mọi
@@ -58,6 +58,49 @@ async function notifyPayosPaymentSuccessTelegram(
     });
   } catch {
     // Bỏ qua lặng lẽ — xem giải thích ở JSDoc hàm này.
+  }
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Báo quán có đơn GIAO TẬN NƠI vừa thanh toán PayOS thành công (Module 19) —
+ * NHÁNH RIÊNG của webhook, khác `notifyPayosPaymentSuccessTelegram` (đơn tại
+ * bàn): dùng mẫu tin "🛵 ĐƠN SHIP MỚI" giống hệt đơn COD (xem
+ * `/api/notify/telegram/route.ts` case `new_delivery_order`) để chủ quán nhận
+ * đúng 1 dạng tin nhắn cho MỌI đơn giao hàng bất kể phương thức thanh toán,
+ * KHÔNG kèm danh sách món (webhook không có sẵn order_items ở đây, chỉ có
+ * order — giữ đơn giản, giống `notifyPayosPaymentSuccessTelegram` cũng không
+ * liệt kê món). CÙNG LÝ DO BẮT BUỘC PHẢI AWAIT như hàm trên — xem JSDoc.
+ */
+async function notifyNewDeliveryOrderPaidTelegram(
+  recipientName: string,
+  recipientPhone: string,
+  deliveryAddress: string,
+  itemsTotal: number,
+  shippingFee: number
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  const text = [
+    `🛵 <b>ĐƠN SHIP MỚI (đã thanh toán qua VietQR)</b>`,
+    `Khách: ${escapeHtml(recipientName)} (${escapeHtml(recipientPhone)})`,
+    `Đ/C: ${escapeHtml(deliveryAddress)}`,
+    `Tổng: ${Math.round(itemsTotal).toLocaleString("vi-VN")}đ + Ship: ${Math.round(shippingFee).toLocaleString("vi-VN")}đ`,
+  ].join("\n");
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    });
+  } catch {
+    // Bỏ qua lặng lẽ — xem giải thích ở JSDoc notifyPayosPaymentSuccessTelegram.
   }
 }
 
@@ -130,15 +173,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true, alreadyProcessed: true });
   }
 
-  const tableId = rows[0]?.table_id;
-  const tableNumber = rows[0]?.table_number ?? 0;
+  const tableId = rows[0]?.table_id ?? null;
   const settledAmount = rows.reduce((sum, r) => sum + r.total_amount, 0);
-
-  // Bàn chuyển "Cần dọn dẹp" — giống hệt hành vi markOrdersPaid thủ công
-  // (Module 13), không chặn luồng chính nếu lỗi nhẹ.
-  if (tableId) {
-    await (supabase.from("tables") as any).update({ status: "needs_cleaning" }).eq("id", tableId);
-  }
 
   // Cộng điểm thưởng cho từng đơn có customer_id — best-effort, lỗi không
   // được chặn việc webhook trả về thành công (tiền đã ghi nhận là quan trọng
@@ -160,9 +196,47 @@ export async function POST(request: Request): Promise<NextResponse> {
       })
   );
 
-  // await ở đây — xem giải thích chi tiết trong JSDoc của hàm, đây LÀ điểm
-  // khác biệt bắt buộc so với các thông báo Telegram "bắn rồi quên" khác.
-  await notifyPayosPaymentSuccessTelegram(tableNumber, settledAmount, rows.length);
+  // NHÁNH ĐƠN TẠI BÀN (Module 15, không đổi): `table_id` khác null — bàn
+  // chuyển "Cần dọn dẹp" (giống markOrdersPaid thủ công, Module 13) rồi báo
+  // Telegram theo bàn.
+  if (tableId) {
+    await (supabase.from("tables") as any).update({ status: "needs_cleaning" }).eq("id", tableId);
 
-  return NextResponse.json({ ok: true, tableNumber, settledOrderCount: rows.length, settledAmount });
+    const tableNumber = rows[0]?.table_number ?? 0;
+    // await ở đây — xem giải thích chi tiết trong JSDoc của hàm, đây LÀ điểm
+    // khác biệt bắt buộc so với các thông báo Telegram "bắn rồi quên" khác.
+    await notifyPayosPaymentSuccessTelegram(tableNumber, settledAmount, rows.length);
+
+    return NextResponse.json({ ok: true, tableNumber, settledOrderCount: rows.length, settledAmount });
+  }
+
+  // NHÁNH ĐƠN GIAO HÀNG (Module 19, MỚI): `table_id` là null — RPC chỉ chốt
+  // ĐÚNG 1 đơn (không gộp), tra thêm người nhận/địa chỉ/phí ship (RPC không
+  // trả các cột này) rồi báo Telegram kiểu "ĐƠN SHIP MỚI". CỐ Ý KHÔNG đụng
+  // `tables` (không có bàn) — xem giải thích "TÁCH delivery_status" ở
+  // schema.sql Module 19: thanh toán xong KHÔNG đồng nghĩa đơn đã hoàn tất.
+  const orderId = rows[0]?.order_id;
+  if (orderId) {
+    const { data: deliveryOrderData } = await supabase
+      .from("orders")
+      .select("recipient_name, recipient_phone, delivery_address, total_amount, shipping_fee")
+      .eq("id", orderId)
+      .maybeSingle();
+    const deliveryOrder = deliveryOrderData as unknown as Pick<
+      OrdersRow,
+      "recipient_name" | "recipient_phone" | "delivery_address" | "total_amount" | "shipping_fee"
+    > | null;
+
+    if (deliveryOrder) {
+      await notifyNewDeliveryOrderPaidTelegram(
+        deliveryOrder.recipient_name ?? "Khách hàng",
+        deliveryOrder.recipient_phone ?? "",
+        deliveryOrder.delivery_address ?? "",
+        deliveryOrder.total_amount,
+        deliveryOrder.shipping_fee
+      );
+    }
+  }
+
+  return NextResponse.json({ ok: true, delivery: true, settledOrderCount: rows.length, settledAmount });
 }

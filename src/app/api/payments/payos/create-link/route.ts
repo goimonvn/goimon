@@ -51,10 +51,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   // Xem ghi chú ở daily-telegram/route.ts: `.select()` cột hẹp trên client
   // viết tay không suy luận chính xác kiểu, luôn ép kiểu tường minh qua
   // `unknown` ngay sau khi lấy `data` về thay vì dựa vào suy luận tự động.
-  type AnchorOrderRow = Pick<OrdersRow, "id" | "table_id" | "order_type" | "payment_status">;
+  type AnchorOrderRow = Pick<
+    OrdersRow,
+    "id" | "table_id" | "order_type" | "payment_status" | "total_amount" | "shipping_fee"
+  >;
   const { data: anchorOrderData, error: anchorError } = await supabase
     .from("orders")
-    .select("id, table_id, order_type, payment_status")
+    .select("id, table_id, order_type, payment_status, total_amount, shipping_fee")
     .eq("id", body.orderId)
     .maybeSingle();
   const anchorOrder = anchorOrderData as unknown as AnchorOrderRow | null;
@@ -63,16 +66,61 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Không tìm thấy đơn hàng." }, { status: 404 });
   }
 
-  // Phạm vi Module 15: chỉ đơn tại bàn — xem giải thích ở schema.sql.
-  if (anchorOrder.order_type !== "dine_in" || !anchorOrder.table_id) {
-    return NextResponse.json(
-      { error: "Thanh toán VietQR tự động hiện chỉ áp dụng cho đơn tại bàn." },
-      { status: 400 }
-    );
-  }
-
   if (anchorOrder.payment_status === "paid") {
     return NextResponse.json({ error: "Đơn này đã được thanh toán." }, { status: 400 });
+  }
+
+  // Phạm vi Module 15 (đơn tại bàn) và Module 19 (đơn giao hàng, MỚI) — đơn
+  // "mang đi" (takeaway) VẪN ngoài phạm vi tự động hoá thanh toán, giữ nguyên
+  // giới hạn đã ghi ở schema.sql Module 15.
+  if (anchorOrder.order_type === "delivery") {
+    // Đơn giao hàng: KHÔNG gộp theo bàn (không có bàn) — số tiền = ĐÚNG đơn
+    // này (tiền món + phí ship), khác hẳn nhánh dine_in bên dưới (gộp cả bàn).
+    const amount = anchorOrder.total_amount + anchorOrder.shipping_fee;
+    if (amount <= 0) {
+      return NextResponse.json({ error: "Đơn hàng không có số tiền cần thanh toán." }, { status: 400 });
+    }
+
+    const origin = new URL(request.url).origin;
+    const orderCode = generatePayosOrderCode();
+
+    try {
+      const link = await createPaymentLink({
+        orderCode,
+        amount,
+        label: `DH${anchorOrder.id.slice(0, 8).toUpperCase()}`,
+        cancelUrl: `${origin}/delivery/track/${anchorOrder.id}`,
+        returnUrl: `${origin}/delivery/track/${anchorOrder.id}`,
+      });
+
+      const { error: updateError } = await (supabase.from("orders") as any)
+        .update({ payment_order_code: orderCode, payment_link_id: link.paymentLinkId })
+        .eq("id", anchorOrder.id);
+
+      if (updateError) {
+        return NextResponse.json({ error: "Không thể lưu lại link thanh toán." }, { status: 500 });
+      }
+
+      const result: CreatePaymentLinkResult = {
+        orderCode,
+        amount,
+        qrImageUrl: buildQrImageUrl(link.qrCode),
+        checkoutUrl: link.checkoutUrl,
+      };
+      return NextResponse.json(result);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Không thể tạo link thanh toán PayOS." },
+        { status: 502 }
+      );
+    }
+  }
+
+  if (anchorOrder.order_type !== "dine_in" || !anchorOrder.table_id) {
+    return NextResponse.json(
+      { error: "Thanh toán VietQR tự động hiện chỉ áp dụng cho đơn tại bàn hoặc đơn giao hàng." },
+      { status: 400 }
+    );
   }
 
   const { data: tableData, error: tableError } = await supabase
@@ -112,7 +160,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const link = await createPaymentLink({
       orderCode,
       amount,
-      tableNumber: table.table_number,
+      label: `B${table.table_number}`,
       cancelUrl: `${origin}/order/status`,
       returnUrl: `${origin}/order/status`,
     });

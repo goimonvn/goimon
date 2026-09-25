@@ -2,6 +2,7 @@ import type {
   ComboItemsRow,
   CombosRow,
   CustomersRow,
+  DeliveryStatus,
   ExpenseCategory,
   ExpensesRow,
   FeedbacksRow,
@@ -241,6 +242,14 @@ export interface KdsTicket {
   station_type: StationType;
   /** Tên combo nếu món này là 1 thành phần nổ ra từ combo — null cho món gọi lẻ (Module 11). */
   combo_name: string | null;
+  /**
+   * 'dine_in' | 'takeaway' | 'delivery' (Module 19) — CẦN thiết để phân biệt
+   * đúng nhãn hiển thị: trước Module 19, `table_number === null` được hiểu
+   * MẶC ĐỊNH là "mang đi" (chỉ 2 khả năng), nay có THÊM 'delivery' cũng luôn
+   * có `table_number = null` — phải dựa vào field này, không suy luận từ
+   * table_number nữa, xem KdsItemCard.tsx.
+   */
+  order_type: OrderType;
   created_at: string;
 }
 
@@ -567,6 +576,36 @@ export type TelegramNotifyPayload =
       /** Chuỗi ISO. */
       reservationTime: string;
       note: string | null;
+    }
+  | {
+      /**
+       * Đơn GIAO TẬN NƠI mới (Module 19) — CHỈ bắn khi đơn đã chắc chắn được
+       * xử lý: ngay lúc tạo đơn nếu khách chọn COD (client gọi, xem
+       * delivery.service.ts#createDeliveryOrder), hoặc từ webhook PayOS SERVER
+       * gọi thẳng Telegram API (không qua route này) nếu khách trả qua PayOS
+       * — xem route.ts webhook, 2 nơi khác nhau nhưng cùng 1 mẫu tin.
+       */
+      type: "new_delivery_order";
+      recipientName: string;
+      recipientPhone: string;
+      deliveryAddress: string;
+      deliveryNotes: string | null;
+      items: TelegramOrderItemSummary[];
+      /** Tiền món (CHƯA gồm phí ship) — hiển thị tách riêng với shippingFee trong tin nhắn, giống cách UI luôn tách 2 khoản này. */
+      itemsTotal: number;
+      shippingFee: number;
+    }
+  | {
+      /**
+       * Khách bấm "Liên hệ hỗ trợ" ở `/delivery/track/[id]` (Module 19) —
+       * kênh giao hàng KHÔNG có bàn/nhân viên đứng cạnh để "Gọi nhân viên"
+       * như `staff_calls` (Module 2, bắt buộc `table_id`), nên dùng thẳng
+       * Telegram làm kênh liên hệ duy nhất, giống tinh thần các thông báo
+       * khác trong dự án.
+       */
+      type: "delivery_support_request";
+      orderId: string;
+      recipientPhone: string;
     };
 
 // ---------------------------------------------------------------------------
@@ -796,6 +835,7 @@ export interface ExpenseWithCreator extends ExpensesRow {
 export const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   dine_in: "Ăn tại bàn",
   takeaway: "Đặt mang đi",
+  delivery: "Giao tận nơi",
 };
 
 export const TABLE_SHAPE_LABEL: Record<TableShape, string> = {
@@ -830,4 +870,81 @@ export const RESERVATION_STATUS_LABEL: Record<ReservationStatus, string> = {
 /** Lượt đặt bàn kèm số bàn (nếu đã gán) — dùng cho `/staff/reservations` và badge trên sơ đồ bàn. */
 export interface ReservationWithTable extends ReservationsRow {
   table_number: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Module 19 — Đặt Mua Hàng Giao Tận Nơi Từ Xa (Remote Delivery / Shipping)
+// ---------------------------------------------------------------------------
+
+export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = {
+  pending: "Đã nhận đơn",
+  preparing: "Bếp đang làm",
+  delivering: "Đang giao hàng",
+  completed: "Đã giao thành công",
+  cancelled: "Đã huỷ",
+};
+
+/**
+ * Thứ tự 4 bước hiển thị trên progress bar ở `/delivery/track/[id]` (Module
+ * 19) — CỐ Ý không gồm 'cancelled' (trạng thái kết thúc bất thường, hiển thị
+ * riêng bằng UI báo huỷ thay vì 1 bước trên progress bar tuyến tính).
+ */
+export const DELIVERY_STATUS_STEPS: readonly DeliveryStatus[] = [
+  "pending",
+  "preparing",
+  "delivering",
+  "completed",
+] as const;
+
+/** Bước kế tiếp nhân viên có thể chuyển tới ở `/staff/orders` — null nếu đã ở trạng thái kết thúc (completed/cancelled không cho tiến thêm qua nút này). */
+export const NEXT_DELIVERY_STATUS: Record<DeliveryStatus, DeliveryStatus | null> = {
+  pending: "preparing",
+  preparing: "delivering",
+  delivering: "completed",
+  completed: null,
+  cancelled: null,
+};
+
+export const DELIVERY_ADVANCE_ACTION_LABEL: Record<DeliveryStatus, string> = {
+  pending: "Gửi Bếp",
+  preparing: "Đã làm xong - Giao hàng",
+  delivering: "Hoàn thành đơn",
+  completed: "",
+  cancelled: "",
+};
+
+/**
+ * Input tạo 1 đơn giao hàng (Module 19) — độc lập với `CreateOrderInput`
+ * (Module 1/13) dù cùng tạo ra 1 dòng `orders`: đơn giao hàng KHÔNG có
+ * table_id/promotion/customerId (kênh `/delivery` không đăng nhập, không gắn
+ * bàn, và CHƯA hỗ trợ áp mã giảm giá ở lần triển khai này — ngoài phạm vi yêu
+ * cầu ban đầu), nhưng có thêm người nhận/địa chỉ/phương thức thanh toán bắt
+ * buộc phải chọn ngay lúc gửi đơn (khác dine_in/takeaway, nơi payment_method
+ * luôn chọn SAU lúc thanh toán) — xem delivery.service.ts#createDeliveryOrder.
+ */
+export interface DeliveryOrderInput {
+  lines: CartLine[];
+  recipientName: string;
+  recipientPhone: string;
+  deliveryAddress: string;
+  deliveryNotes: string | null;
+  /** 'cod' hoặc 'vietqr' (PayOS) — KHÔNG cho 'cash' ở kênh này (khách không có mặt tại quán để trả tiền mặt trực tiếp lúc gửi đơn, xem trang `/delivery`). */
+  paymentMethod: "cod" | "vietqr";
+}
+
+/** Kết quả tạo đơn giao hàng thành công — đủ để trang `/delivery` chuyển sang bước thanh toán (nếu PayOS) hoặc chuyển thẳng sang tracking (nếu COD). */
+export interface DeliveryOrderResult {
+  orderId: string;
+  /** Tổng tiền MÓN, chưa gồm ship (khớp `orders.total_amount`). */
+  itemsTotal: number;
+  shippingFee: number;
+  /** = itemsTotal + shippingFee — số tiền hiển thị/thu thực tế. */
+  grandTotal: number;
+  paymentMethod: "cod" | "vietqr";
+}
+
+/** Dữ liệu hiển thị ở `/delivery/track/[id]` — làm phẳng từ OrderWithItems + phép tính grandTotal, tránh trang phải tự cộng shipping_fee ở nhiều nơi. */
+export interface DeliveryTrackingInfo {
+  order: OrderWithItems;
+  grandTotal: number;
 }

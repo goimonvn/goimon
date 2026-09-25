@@ -1,12 +1,15 @@
 "use client";
 
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePaymentSettings } from "@/hooks/usePaymentSettings";
+import { useDeliverySettings } from "@/hooks/useDeliverySettings";
 import type { PaymentConfigValue } from "@/types/database.types";
-import { Banknote, QrCode, Wallet, Zap } from "lucide-react";
+import { Banknote, Bike, QrCode, Wallet, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
 
 interface SettingToggleRow {
   key: keyof PaymentConfigValue;
@@ -57,11 +60,115 @@ const SETTING_ROWS: SettingToggleRow[] = [
   },
 ];
 
+/**
+ * Cấu hình kênh Giao tận nơi (Module 19) — 2 công tắc (giống khuôn mẫu
+ * `SETTING_ROWS` ở trên) + 2 ô nhập số (phí ship mặc định/ngưỡng freeship).
+ * Tách thành component riêng (thay vì gộp chung mảng `SETTING_ROWS`) vì có
+ * thêm 2 input số — không thuần "danh sách công tắc" như payment_config.
+ */
+function DeliverySettingsSection() {
+  const { settings, loading, updating, updateSetting } = useDeliverySettings();
+  const [baseFeeDraft, setBaseFeeDraft] = useState("");
+  const [thresholdDraft, setThresholdDraft] = useState("");
+
+  if (loading || !settings) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-2xl" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-4 rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="flex gap-3">
+          <Bike className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div>
+            <Label htmlFor="toggle-delivery" className="cursor-pointer font-medium">
+              Kênh Giao tận nơi
+            </Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Bật/tắt toàn bộ trang <code>/delivery</code> — tắt cờ này sẽ báo khách quán tạm ngưng nhận đơn
+              giao hàng, không ảnh hưởng đơn tại bàn/mang đi.
+            </p>
+          </div>
+        </div>
+        <Switch
+          id="toggle-delivery"
+          checked={settings.enable_delivery}
+          disabled={updating}
+          onCheckedChange={(checked) => void updateSetting("enable_delivery", checked)}
+        />
+      </div>
+
+      <div className="flex items-start justify-between gap-4 rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="flex gap-3">
+          <Wallet className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div>
+            <Label htmlFor="toggle-cod" className="cursor-pointer font-medium">
+              Thanh toán khi nhận hàng (COD)
+            </Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cho phép khách chọn trả tiền mặt khi shipper giao hàng — tắt cờ này KHÔNG ảnh hưởng PayOS
+              (2 phương thức độc lập).
+            </p>
+          </div>
+        </div>
+        <Switch
+          id="toggle-cod"
+          checked={settings.enable_cod}
+          disabled={updating}
+          onCheckedChange={(checked) => void updateSetting("enable_cod", checked)}
+        />
+      </div>
+
+      <div className="grid gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="base-shipping-fee">Phí ship mặc định (đ)</Label>
+          <Input
+            id="base-shipping-fee"
+            type="number"
+            min={0}
+            defaultValue={settings.base_shipping_fee}
+            onChange={(e) => setBaseFeeDraft(e.target.value)}
+            onBlur={() => {
+              const value = Number(baseFeeDraft);
+              if (baseFeeDraft === "" || Number.isNaN(value) || value < 0) return;
+              void updateSetting("base_shipping_fee", value);
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="free-shipping-threshold">Miễn phí ship từ (đ)</Label>
+          <Input
+            id="free-shipping-threshold"
+            type="number"
+            min={0}
+            defaultValue={settings.free_shipping_threshold}
+            onChange={(e) => setThresholdDraft(e.target.value)}
+            onBlur={() => {
+              const value = Number(thresholdDraft);
+              if (thresholdDraft === "" || Number.isNaN(value) || value < 0) return;
+              void updateSetting("free_shipping_threshold", value);
+            }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          Đơn có tổng tiền món (chưa gồm ship) từ mức &quot;Miễn phí ship từ&quot; trở lên sẽ tự động được miễn phí ship.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminSettingsPage() {
   const { settings, loading, updating, updateSetting } = usePaymentSettings();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <h1 className="text-xl font-bold">Cấu hình thanh toán</h1>
         <p className="text-sm text-muted-foreground">
@@ -102,6 +209,14 @@ export default function AdminSettingsPage() {
           ))}
         </div>
       )}
+
+      <div>
+        <h2 className="text-xl font-bold">Cấu hình Giao tận nơi</h2>
+        <p className="text-sm text-muted-foreground">
+          Bật/tắt kênh giao hàng, phương thức COD và mức phí ship áp dụng ở trang <code>/delivery</code>.
+        </p>
+      </div>
+      <DeliverySettingsSection />
     </div>
   );
 }

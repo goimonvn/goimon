@@ -153,6 +153,56 @@ function buildMessageText(body: unknown): string | null {
         .join("\n");
     }
 
+    case "new_delivery_order": {
+      if (typeof body.recipientName !== "string" || !body.recipientName.trim()) return null;
+      if (typeof body.recipientPhone !== "string" || !body.recipientPhone.trim()) return null;
+      if (typeof body.deliveryAddress !== "string" || !body.deliveryAddress.trim()) return null;
+      if (!Array.isArray(body.items)) return null;
+
+      const itemLines = body.items
+        .slice(0, MAX_ITEMS_IN_MESSAGE)
+        .map((item: unknown) => {
+          if (!isRecord(item)) return null;
+          const name = typeof item.name === "string" && item.name.trim() ? item.name : "Món";
+          const quantity = typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+          return `• ${quantity}x ${escapeHtml(name.slice(0, MAX_ITEM_NAME_LENGTH))}`;
+        })
+        .filter((line): line is string => line !== null)
+        .join("\n");
+
+      const itemsTotal = typeof body.itemsTotal === "number" && Number.isFinite(body.itemsTotal) ? body.itemsTotal : 0;
+      const shippingFee = typeof body.shippingFee === "number" && Number.isFinite(body.shippingFee) ? body.shippingFee : 0;
+      const deliveryNotes =
+        typeof body.deliveryNotes === "string" && body.deliveryNotes.trim()
+          ? escapeHtml(body.deliveryNotes.trim().slice(0, MAX_COMMENT_LENGTH))
+          : "";
+
+      return [
+        `🛵 <b>ĐƠN SHIP MỚI</b>`,
+        `Khách: ${escapeHtml(body.recipientName.trim().slice(0, MAX_ITEM_NAME_LENGTH))} (${escapeHtml(body.recipientPhone.trim().slice(0, 20))})`,
+        `Đ/C: ${escapeHtml(body.deliveryAddress.trim().slice(0, 200))}`,
+        itemLines || "(không có món)",
+        `Tổng: ${itemsTotal.toLocaleString("vi-VN")}đ + Ship: ${shippingFee.toLocaleString("vi-VN")}đ`,
+        deliveryNotes ? `Ghi chú: ${deliveryNotes}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    case "delivery_support_request": {
+      if (typeof body.orderId !== "string" || !body.orderId.trim()) return null;
+      const recipientPhone =
+        typeof body.recipientPhone === "string" && body.recipientPhone.trim()
+          ? escapeHtml(body.recipientPhone.trim().slice(0, 20))
+          : "?";
+
+      return [
+        `🆘 <b>Khách cần hỗ trợ đơn giao hàng</b>`,
+        `Mã đơn: #${escapeHtml(body.orderId.slice(0, 8).toUpperCase())} · SĐT: ${recipientPhone}`,
+        "Vui lòng gọi lại cho khách sớm nhất có thể.",
+      ].join("\n");
+    }
+
     case "new_feedback": {
       const tableLabel = isValidTableNumber(body.tableNumber) ? `Bàn ${body.tableNumber}` : "Khách";
       const ratingBeverage = typeof body.ratingBeverage === "number" ? body.ratingBeverage : 0;

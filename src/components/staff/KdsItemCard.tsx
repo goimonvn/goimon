@@ -50,8 +50,17 @@ export function KdsItemCard({ ticket, now, onAdvance, advancing }: KdsItemCardPr
     >
       <div className="flex items-center justify-between">
         <span className="rounded-lg bg-foreground px-2.5 py-1 text-sm font-bold text-background">
-          {/* Module 13: order.table_id = null nghĩa là đơn ĐẶT MANG ĐI, không phải bàn "?" (lỗi dữ liệu). */}
-          {ticket.table_number ? `Bàn ${ticket.table_number}` : "🛍️ Mang đi"}
+          {/*
+            Module 13: order.table_id = null nghĩa là đơn KHÔNG tại bàn — trước
+            Module 19 chỉ có 1 khả năng (mang đi), nay có THÊM đơn giao hàng
+            (Module 19) cũng table_id = null, nên PHẢI dựa vào order_type để
+            chọn đúng nhãn, không còn suy luận được chỉ từ table_number nữa.
+          */}
+          {ticket.table_number
+            ? `Bàn ${ticket.table_number}`
+            : ticket.order_type === "delivery"
+              ? "🛵 Giao hàng"
+              : "🛍️ Mang đi"}
         </span>
         <span
           className={cn(

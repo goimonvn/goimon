@@ -70,3 +70,47 @@ export function parseReservationForm(
   const firstIssue = result.error.issues[0];
   return { success: false, error: firstIssue?.message ?? "Dữ liệu không hợp lệ." };
 }
+
+/**
+ * Module 19 — Đặt Mua Hàng Giao Tận Nơi Từ Xa. Validate thông tin người
+ * nhận/địa chỉ ở form `/delivery` (giỏ hàng) TRƯỚC khi gọi
+ * delivery.service.ts#createDeliveryOrder — cùng tinh thần "báo lỗi thân
+ * thiện tức thì, RLS vẫn là lớp cuối cùng" đã áp dụng cho `reservationFormSchema`
+ * ở trên (Module 18).
+ */
+export const deliveryFormSchema = z.object({
+  recipientName: z
+    .string()
+    .trim()
+    .min(1, "Vui lòng nhập tên người nhận.")
+    .max(100, "Tên người nhận quá dài (tối đa 100 ký tự)."),
+  recipientPhone: z
+    .string()
+    .trim()
+    .min(1, "Vui lòng nhập số điện thoại người nhận.")
+    .regex(/^[0-9+ ]{8,15}$/, "Số điện thoại không hợp lệ."),
+  deliveryAddress: z
+    .string()
+    .trim()
+    .min(5, "Vui lòng nhập địa chỉ giao hàng đầy đủ.")
+    .max(300, "Địa chỉ quá dài (tối đa 300 ký tự)."),
+  deliveryNotes: z
+    .string()
+    .trim()
+    .max(300, "Ghi chú giao hàng tối đa 300 ký tự.")
+    .optional()
+    .default(""),
+});
+
+export type DeliveryFormValues = z.infer<typeof deliveryFormSchema>;
+
+export function parseDeliveryForm(
+  raw: unknown
+): { success: true; data: DeliveryFormValues } | { success: false; error: string } {
+  const result = deliveryFormSchema.safeParse(raw);
+  if (result.success) {
+    return { success: true, data: result.data };
+  }
+  const firstIssue = result.error.issues[0];
+  return { success: false, error: firstIssue?.message ?? "Dữ liệu không hợp lệ." };
+}

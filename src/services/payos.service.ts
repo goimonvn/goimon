@@ -34,8 +34,16 @@ export function generatePayosOrderCode(): number {
   return Number(`${Date.now()}${randomSuffix}`);
 }
 
-function buildDescription(tableNumber: number): string {
-  const text = `Thanh toan GOIMON B${tableNumber}`;
+/**
+ * `label` phân biệt "đơn của ai" trong nội dung chuyển khoản (khách/ngân hàng
+ * nhìn thấy) — `B{tableNumber}` cho đơn tại bàn (Module 15), `DH{8 ký tự đầu
+ * orderId}` cho đơn giao hàng (Module 19, không có số bàn để dùng). Đổi tên
+ * tham số từ `tableNumber` (Module 15) sang `label` (Module 19) để hàm này
+ * dùng chung được cho cả 2 luồng — xem 2 nơi gọi ở
+ * `/api/payments/payos/create-link/route.ts`.
+ */
+function buildDescription(label: string): string {
+  const text = `Thanh toan GOIMON ${label}`;
   return text.slice(0, MAX_DESCRIPTION_LENGTH);
 }
 
@@ -72,7 +80,8 @@ function sign(data: Record<string, unknown>, checksumKey: string): string {
 export interface CreatePayosLinkParams {
   orderCode: number;
   amount: number;
-  tableNumber: number;
+  /** Xem JSDoc `buildDescription` — `"B{tableNumber}"` cho đơn tại bàn, `"DH{...}"` cho đơn giao hàng. */
+  label: string;
   /** URL PayOS chuyển khách trình duyệt tới nếu khách bấm huỷ ở trang checkout hosted của PayOS — luồng chính của app KHÔNG dùng trang này (hiện QR ngay trong CheckoutSheet) nhưng PayOS bắt buộc phải có giá trị. */
   cancelUrl: string;
   returnUrl: string;
@@ -95,7 +104,7 @@ export async function createPaymentLink(params: CreatePayosLinkParams): Promise<
   }
 
   const amount = Math.round(params.amount);
-  const description = buildDescription(params.tableNumber);
+  const description = buildDescription(params.label);
 
   // Chữ ký chỉ ký đúng 5 trường này (thứ tự alphabet: amount, cancelUrl,
   // description, orderCode, returnUrl) — theo đúng quy định chữ ký của PayOS

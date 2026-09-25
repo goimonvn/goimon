@@ -39,7 +39,12 @@ export async function getPaymentSettings(): Promise<PaymentConfigValue> {
     throw new AppError("Không thể tải cấu hình thanh toán.", error);
   }
 
-  return { ...DEFAULT_PAYMENT_CONFIG, ...(data?.value ?? {}) };
+  // Module 19: `system_settings.value` giờ là union (PaymentConfigValue |
+  // DeliveryConfigValue, xem database.types.ts) vì bảng có thêm key
+  // 'delivery_config' — ép kiểu tường minh về đúng hình dạng của KEY đang đọc
+  // ở đây ('payment_config') trước khi spread, tránh TypeScript suy luận kiểu
+  // hợp nhất (union merge) không khớp `PaymentConfigValue`.
+  return { ...DEFAULT_PAYMENT_CONFIG, ...((data?.value as Partial<PaymentConfigValue>) ?? {}) };
 }
 
 /** Chỉ admin gọi được (xem policy "Admin update system_settings") — ghi đè TOÀN BỘ giá trị JSONB bằng object mới. */

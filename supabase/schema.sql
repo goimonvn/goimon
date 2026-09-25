@@ -1652,3 +1652,181 @@ create policy "Staff update reservations" on reservations for update
   to authenticated
   using (public.current_user_role() in ('admin', 'staff'))
   with check (public.current_user_role() in ('admin', 'staff'));
+
+-- ============================================================================
+-- Module 19 — Đặt Mua Hàng Giao Tận Nơi Từ Xa (Remote Delivery / Shipping)
+--
+-- Bài toán: 2 kênh bán hàng hiện có (Module 1 "tại bàn" và Module 13 "mang đi
+-- tự tới lấy") đều giả định khách TỚI QUÁN. Module này thêm kênh thứ 3: khách
+-- đặt hàng từ xa qua link công khai `/delivery`, KHÔNG cần tới quán, quán giao
+-- tận nơi — cần thêm địa chỉ/người nhận, phí ship tự tính, và 1 vòng đời trạng
+-- thái giao hàng RIÊNG (khác `orders.status`, xem giải thích ngay dưới).
+--
+-- TÁI SỬ DỤNG TỐI ĐA hạ tầng đã có (đúng yêu cầu người dùng): đơn delivery vẫn
+-- là 1 dòng trong `orders` (order_type = 'delivery', table_id = null — giống
+-- 'takeaway'), vẫn insert order_items y hệt, vẫn qua đúng RPC
+-- `confirm_payos_payment`/webhook PayOS đã có (Module 15, mở rộng bên dưới),
+-- vẫn dùng bảng `system_settings` kiểu key/value (Module 17) cho cấu hình phí
+-- ship, và vẫn "bắn" Telegram qua đúng route `/api/notify/telegram` (Module 7).
+--
+-- QUYẾT ĐỊNH THIẾT KẾ QUAN TRỌNG — payment_method 'cod' MỚI, NHƯNG PayOS vẫn
+-- dùng LẠI 'vietqr' (KHÔNG thêm 'payos_qr' như tên gợi ý ban đầu): mọi báo cáo/
+-- lọc doanh thu hiện có (close_shift, analytics.service.ts) đều lọc theo
+-- payment_method = 'vietqr' cho "chuyển khoản" — thêm 1 giá trị mới riêng cho
+-- delivery sẽ làm doanh thu PayOS của đơn giao hàng BIẾN MẤT khỏi các báo cáo
+-- đó một cách âm thầm. 'vietqr' dùng chung cho CẢ 3 trường hợp giờ đây (nhân
+-- viên xác nhận tay, PayOS tại bàn, PayOS giao hàng) — vẫn phân biệt được nhờ
+-- payment_order_code khác null (xem ghi chú tương tự ở Module 15).
+--
+-- QUYẾT ĐỊNH THIẾT KẾ QUAN TRỌNG — TÁCH `delivery_status` khỏi `orders.status`:
+-- với đơn tại bàn, "thanh toán xong" ĐỒNG NGHĨA "đơn hoàn tất" (khách trả tiền
+-- rồi về). Với đơn giao hàng KHÔNG như vậy — khách thanh toán qua PayOS TRƯỚC
+-- khi hàng rời quán, nhưng đơn còn phải qua Bếp làm -> shipper giao -> khách
+-- nhận mới thực sự "xong". Nếu dùng chung `orders.status` (vốn quyết định đơn
+-- có còn hiện ở KDS/"đang hoạt động" hay không), việc PayOS xác nhận thanh
+-- toán sẽ vô tình đá luôn đơn ra khỏi hàng đợi bếp. Vì vậy:
+--   - `orders.status` (pending/preparing/completed/cancelled) VẪN đúng vai trò
+--     cũ: bếp/bar dùng để biết còn món cần làm hay không (order_items lồng
+--     trong đơn), KHÔNG bị PayOS đụng vào đối với đơn delivery.
+--   - `delivery_status` (cột MỚI, RIÊNG) là vòng đời giao hàng mà khách theo
+--     dõi ở `/delivery/track/[id]` và nhân viên thao tác ở `/staff/orders`:
+--     'pending' (mới tạo) -> 'preparing' (đã gửi bếp) -> 'delivering' (shipper
+--     đang giao) -> 'completed' (khách đã nhận — CHÍNH THỜI ĐIỂM NÀY mới coi
+--     là "xong" với đơn COD: payment_status chuyển 'paid' ở bước này, xem
+--     delivery.service.ts#updateDeliveryStatus) hoặc 'cancelled'.
+-- ============================================================================
+
+-- ---- orders: 6 cột mới cho đơn giao hàng — mọi cột đều NULLABLE/có default vì
+--      chỉ áp dụng cho order_type = 'delivery', vô nghĩa với dine_in/takeaway. ----
+alter table orders add column if not exists recipient_name text;
+alter table orders add column if not exists recipient_phone text;
+alter table orders add column if not exists delivery_address text;
+alter table orders add column if not exists delivery_notes text;
+alter table orders add column if not exists shipping_fee numeric(12, 0) not null default 0 check (shipping_fee >= 0);
+alter table orders add column if not exists delivery_status text not null default 'pending';
+
+alter table orders drop constraint if exists orders_delivery_status_check;
+alter table orders add constraint orders_delivery_status_check
+  check (delivery_status in ('pending', 'preparing', 'delivering', 'completed', 'cancelled'));
+
+-- ---- order_type: thêm 'delivery' — GIỮ NGUYÊN 'dine_in'/'takeaway' cũ. ----
+alter table orders drop constraint if exists orders_order_type_check;
+alter table orders add constraint orders_order_type_check
+  check (order_type in ('dine_in', 'takeaway', 'delivery'));
+
+-- ---- table_id vẫn bắt buộc CHỈ với dine_in — 'takeaway' và 'delivery' đều
+--      không gắn bàn nào (đã drop not null từ Module 13, chỉ cần nới constraint
+--      kiểm tra toàn vẹn cho khớp giá trị order_type mới). ----
+alter table orders drop constraint if exists orders_table_id_required_check;
+alter table orders add constraint orders_table_id_required_check
+  check ((order_type = 'dine_in' and table_id is not null) or (order_type in ('takeaway', 'delivery')));
+
+-- ---- payment_method: thêm 'cod' (thanh toán tiền mặt khi nhận hàng) — GIỮ
+--      NGUYÊN 'cash'/'vietqr' cũ, xem giải thích "vietqr dùng chung" ở trên. ----
+alter table orders drop constraint if exists orders_payment_method_check;
+alter table orders add constraint orders_payment_method_check
+  check (payment_method in ('cash', 'vietqr', 'cod'));
+
+create index if not exists idx_orders_order_type on orders (order_type);
+create index if not exists idx_orders_delivery_status on orders (delivery_status);
+
+-- ---- system_settings: seed key mới 'delivery_config' (kiểu key/value đã có
+--      từ Module 17) — bật sẵn cả giao hàng lẫn COD, phí ship/ngưỡng freeship
+--      là số gợi ý ban đầu, chủ quán tự chỉnh ở `/admin/settings`. ----
+insert into system_settings (key, value) values (
+  'delivery_config',
+  jsonb_build_object(
+    'enable_delivery', true,
+    'enable_cod', true,
+    'base_shipping_fee', 15000,
+    'free_shipping_threshold', 150000,
+    'max_delivery_distance_km', 10
+  )
+) on conflict (key) do nothing;
+-- Policy đọc/ghi DÙNG CHUNG "Public read system_settings"/"Admin update
+-- system_settings" đã tạo ở Module 17 (áp dụng cho MỌI dòng của bảng, không
+-- lọc theo key) — không cần policy mới.
+
+-- ---- confirm_payos_payment: viết lại để thêm nhánh đơn giao hàng (Module
+--      19), KHÔNG đổi chữ ký hàm (vẫn nhận đúng 1 p_order_code, trả cùng 1
+--      kiểu bảng như Module 15) nên "create or replace" thay thế trực tiếp.
+--
+--      SỬA 1 LỖI TIỀM ẨN CỦA BẢN CŨ nhân dịp viết lại: bản Module 15 coi
+--      "v_table_id is null" là dấu hiệu DUY NHẤT của "không tìm thấy đơn neo"
+--      — đúng với đơn dine_in (table_id luôn khác null) nhưng SẼ SAI với đơn
+--      delivery/takeaway (table_id luôn là null MỘT CÁCH HỢP LỆ). Bản mới dùng
+--      biến `FOUND` (Postgres tự set sau `select ... into`) để phân biệt đúng
+--      "không có dòng nào khớp" với "có dòng khớp nhưng table_id vốn dĩ null".
+--
+--      NHÁNH DELIVERY: CHỈ chốt payment_status/payment_method/paid_at của
+--      ĐÚNG 1 đơn giữ mã orderCode đó (khác nhánh dine_in gộp CẢ BÀN) — mỗi mã
+--      PayOS của đơn giao hàng vốn đã đại diện đúng 1 đơn (xem
+--      delivery.service.ts#createDeliveryOrder, không có khái niệm "gộp nhiều
+--      đơn cùng 1 lượt giao" như nhiều lượt gọi món của 1 bàn). CỐ Ý KHÔNG đụng
+--      `status`/`delivery_status` — xem giải thích "TÁCH delivery_status" ở
+--      đầu Module 19: đơn giao hàng thanh toán xong vẫn phải qua đúng vòng đời
+--      bếp làm -> giao -> nhận, webhook chỉ xác nhận ĐÃ CÓ TIỀN, không phải ĐÃ
+--      XONG. `table_id`/`table_number` trả về null cho nhánh này — phía
+--      webhook (TypeScript) dùng đúng tín hiệu `table_id === null` để biết đây
+--      là đơn giao hàng và tự tra thêm thông tin người nhận/địa chỉ để bắn
+--      Telegram, xem route.ts. ----
+create or replace function public.confirm_payos_payment(p_order_code bigint)
+returns table (
+  order_id uuid,
+  table_id uuid,
+  table_number int,
+  customer_id uuid,
+  total_amount numeric
+)
+language plpgsql
+as $$
+declare
+  v_table_id uuid;
+  v_order_type text;
+begin
+  select o.table_id, o.order_type into v_table_id, v_order_type
+  from public.orders o
+  where o.payment_order_code = p_order_code
+  limit 1;
+
+  -- Không tìm thấy đơn neo giữ mã này (vd PayOS gọi thử/ping webhook lúc cấu
+  -- hình) — trả rỗng, phía webhook coi là bỏ qua an toàn, KHÔNG báo lỗi. Dùng
+  -- FOUND thay vì "v_table_id is null" — xem giải thích "SỬA 1 LỖI TIỀM ẨN" ở trên.
+  if not found then
+    return;
+  end if;
+
+  if v_order_type = 'delivery' then
+    return query
+    update public.orders o
+    set
+      payment_status = 'paid',
+      payment_method = 'vietqr',
+      paid_at = now()
+    where o.payment_order_code = p_order_code
+      and o.payment_status = 'unpaid'
+    returning o.id, null::uuid, null::int, o.customer_id, o.total_amount;
+    return;
+  end if;
+
+  if v_table_id is null then
+    -- Đơn neo không gắn bàn nào nhưng KHÔNG phải delivery (vd dữ liệu cũ/bất
+    -- thường) — không có "cả bàn" nào để gộp thanh toán, bỏ qua an toàn.
+    return;
+  end if;
+
+  return query
+  update public.orders o
+  set
+    payment_status = 'paid',
+    payment_method = 'vietqr',
+    status = 'completed',
+    paid_at = now()
+  from public.tables t
+  where o.table_id = v_table_id
+    and o.payment_status = 'unpaid'
+    and o.status in ('pending', 'preparing')
+    and t.id = o.table_id
+  returning o.id, o.table_id, t.table_number, o.customer_id, o.total_amount;
+end;
+$$;

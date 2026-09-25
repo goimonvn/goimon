@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/sheet";
 import { getPrinterSettings } from "@/lib/printerSettings";
 import { formatCurrency } from "@/lib/utils";
+import { broadcastCounterDisplayEvent } from "@/services/counterDisplay.service";
+import { createPayosPaymentLink } from "@/services/order.service";
 import { buildReceiptData, printReceiptDirect } from "@/services/print.service";
 import { resolveStaffCall } from "@/services/staffCall.service";
 import { getVatInvoiceForOrder } from "@/services/vatInvoice.service";
@@ -20,7 +22,7 @@ import {
   TABLE_STATUS_LABEL,
   type TableWithOrders,
 } from "@/types";
-import { FileText, Printer, Settings2, Wallet } from "lucide-react";
+import { FileText, MonitorOff, Printer, Settings2, Tv, Wallet, Zap } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { PrinterSettingsDialog } from "./PrinterSettingsDialog";
@@ -41,6 +43,9 @@ export function TableDetailSheet({
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
+  // Module 16: gửi tín hiệu qua Broadcast tới Màn hình phụ tại quầy.
+  const [sendingToDisplay, setSendingToDisplay] = useState(false);
+  const [startingCounterPayment, setStartingCounterPayment] = useState(false);
 
   const total = table?.activeOrders.reduce((sum, o) => sum + o.total_amount, 0) ?? 0;
 
@@ -79,6 +84,81 @@ export function TableDetailSheet({
       );
     } finally {
       setPrinting(false);
+    }
+  }
+
+  /**
+   * "Hiện lên màn hình phụ" (Module 16) — chỉ gửi tín hiệu "hiện bàn này lên"
+   * (broadcast ORDER_UPDATED), KHÔNG gửi kèm danh sách món: Màn hình phụ tự
+   * tải/lắng nghe lại đúng đơn của bàn bằng `useActiveOrders` (giống khách,
+   * Module 1) nên nội dung món luôn khớp dữ liệu thật, kể cả khi khách gọi
+   * thêm món ngay sau khi thu ngân vừa bấm nút này.
+   */
+  async function handleShowOnCounterDisplay() {
+    if (!table) return;
+    setSendingToDisplay(true);
+    try {
+      await broadcastCounterDisplayEvent({
+        type: "ORDER_UPDATED",
+        tableId: table.id,
+        tableNumber: table.table_number,
+      });
+      toast.success(`Đã hiện Bàn ${table.table_number} lên màn hình phụ.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Không thể kết nối tới màn hình phụ tại quầy."
+      );
+    } finally {
+      setSendingToDisplay(false);
+    }
+  }
+
+  /**
+   * "Thanh toán qua màn hình phụ" (Module 16) — tạo link/mã VietQR động PayOS
+   * cho ĐÚNG đơn "neo" của bàn (đơn gần nhất, giống quy ước ở
+   * `/order/status/page.tsx`), dùng LẠI đúng route `/api/payments/payos/create-link`
+   * của Module 15 (server tự tính lại số tiền = tổng cả bàn), rồi phát
+   * PAYMENT_STARTED để Màn hình phụ hiện mã QR lớn cho khách quét ngay tại
+   * quầy — khác với `CheckoutSheet` (khách tự bấm trên điện thoại), ở đây
+   * CHÍNH THU NGÂN bấm hộ khi khách đã đứng tại quầy.
+   */
+  async function handleStartCounterPayment() {
+    if (!table) return;
+    const anchorOrderId = table.activeOrders.at(-1)?.id;
+    if (!anchorOrderId) {
+      toast.error("Bàn không có đơn nào cần thanh toán.");
+      return;
+    }
+
+    setStartingCounterPayment(true);
+    try {
+      const link = await createPayosPaymentLink(anchorOrderId);
+      await broadcastCounterDisplayEvent({
+        type: "PAYMENT_STARTED",
+        tableId: table.id,
+        tableNumber: table.table_number,
+        orderId: anchorOrderId,
+        orderCode: link.orderCode,
+        amount: link.amount,
+        qrImageUrl: link.qrImageUrl,
+      });
+      toast.success(`Đã gửi mã QR thanh toán ra màn hình phụ cho Bàn ${table.table_number}.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Không thể bắt đầu thanh toán trên màn hình phụ."
+      );
+    } finally {
+      setStartingCounterPayment(false);
+    }
+  }
+
+  /** "Tắt màn hình phụ" (Module 16) — đưa Màn hình phụ về lại màn chờ, dùng khi thu ngân chọn nhầm bàn hoặc muốn dọn màn hình giữa chừng. */
+  async function handleClearCounterDisplay() {
+    try {
+      await broadcastCounterDisplayEvent({ type: "ORDER_CLEARED" });
+    } catch {
+      // Bỏ qua — đây chỉ là thao tác dọn màn hình phụ về màn chờ, không quan
+      // trọng bằng các luồng thanh toán nên không cần báo lỗi làm phiền thu ngân.
     }
   }
 
@@ -168,6 +248,27 @@ export function TableDetailSheet({
               <span className="font-medium">Tổng cộng</span>
               <span className="font-bold text-primary">{formatCurrency(total)}</span>
             </div>
+
+            {/* Module 16: Màn hình phụ tại quầy — 2 nút riêng, độc lập với luồng thanh toán thủ công (PaymentConfirmSheet) bên dưới. */}
+            <div className="mb-2 grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                disabled={sendingToDisplay}
+                onClick={() => void handleShowOnCounterDisplay()}
+              >
+                <Tv className="h-4 w-4" />
+                {sendingToDisplay ? "Đang gửi..." : "Hiện màn hình phụ"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={startingCounterPayment}
+                onClick={() => void handleStartCounterPayment()}
+              >
+                <Zap className="h-4 w-4" />
+                {startingCounterPayment ? "Đang tạo mã..." : "Thanh toán màn hình phụ"}
+              </Button>
+            </div>
+
             <div className="grid grid-cols-[auto_1fr_1fr] gap-2">
               <Button
                 variant="outline"
@@ -193,6 +294,14 @@ export function TableDetailSheet({
             >
               <FileText className="h-3 w-3" />
               In qua hộp thoại trình duyệt (dự phòng)
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleClearCounterDisplay()}
+              className="mt-1 flex items-center justify-center gap-1 text-center text-xs text-muted-foreground underline underline-offset-2"
+            >
+              <MonitorOff className="h-3 w-3" />
+              Tắt màn hình phụ (quay về màn chờ)
             </button>
           </SheetFooter>
         )}

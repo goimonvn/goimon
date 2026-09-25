@@ -10,8 +10,13 @@ import {
 } from "@/components/ui/sheet";
 import { formatCurrency } from "@/lib/utils";
 import { buildVietQrUrl } from "@/lib/vietqr";
+import { playTingSound } from "@/lib/sound";
 import { createStaffCall } from "@/services/staffCall.service";
-import { getOrderPaymentStatus, setOrderPaymentMethod } from "@/services/order.service";
+import {
+  createPayosPaymentLink,
+  getOrderPaymentStatus,
+  setOrderPaymentMethod,
+} from "@/services/order.service";
 import type { CreatePaymentLinkResult } from "@/types";
 import type { PaymentMethod } from "@/types/database.types";
 import { Banknote, Loader2, PartyPopper, QrCode, Zap } from "lucide-react";
@@ -32,30 +37,6 @@ interface CheckoutSheetProps {
 
 /** Trạng thái luồng thanh toán tự động qua PayOS (Module 15) — độc lập với luồng thủ công cũ (setOrderPaymentMethod + gọi nhân viên). */
 type PayosStep = "idle" | "creating" | "waiting" | "paid";
-
-/** Phát 1 tiếng "ting" ngắn bằng Web Audio API — KHÔNG dùng file âm thanh (tránh phải thêm asset/dependency mới), an toàn bỏ qua nếu trình duyệt chặn (vd chưa từng có tương tác người dùng). */
-function playTingSound(): void {
-  try {
-    const AudioContextCtor =
-      window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextCtor) return;
-    const ctx = new AudioContextCtor();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(1046.5, ctx.currentTime); // C6
-    oscillator.frequency.setValueAtTime(1568, ctx.currentTime + 0.12); // G6
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.5);
-    oscillator.onended = () => void ctx.close();
-  } catch {
-    // Bỏ qua — hiệu ứng âm thanh chỉ là tiện ích cộng thêm, không được phép gây lỗi màn hình thanh toán.
-  }
-}
 
 /**
  * Sheet yêu cầu thanh toán — có 2 đường ĐỘC LẬP, khách chọn đường nào cũng được:
@@ -150,34 +131,19 @@ export function CheckoutSheet({
     }
     setPayosStep("creating");
     try {
-      const response = await fetch("/api/payments/payos/create-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
-      });
-      const body = (await response.json().catch(() => null)) as
-        | CreatePaymentLinkResult
-        | { error?: string }
-        | null;
-
-      // Kiểm tra KHẲNG ĐỊNH trên "qrImageUrl" (bắt buộc, chỉ có ở kiểu thành
-      // công) thay vì phủ định trên "error" (optional) — vì "error" là thuộc
-      // tính optional, TypeScript không thể loại bỏ hẳn nhánh { error?: string }
-      // ra khỏi kiểu của body chỉ bằng phủ định, dẫn tới lỗi build
-      // "is not assignable to SetStateAction<CreatePaymentLinkResult | null>".
-      if (response.ok && body && "qrImageUrl" in body) {
-        setPayosLink(body);
-        setPayosStep("waiting");
-        return;
-      }
-
+      // Logic fetch/parse response chuyển sang order.service.createPayosPaymentLink
+      // (dùng chung với Màn hình phụ tại quầy, Module 16) — giữ nguyên đúng cách
+      // kiểm tra KHẲNG ĐỊNH trên "qrImageUrl" đã sửa ở đó để tránh lặp lại lỗi
+      // build TypeScript từng gặp (phủ định trên "error", 1 thuộc tính optional).
+      const link = await createPayosPaymentLink(orderId);
+      setPayosLink(link);
+      setPayosStep("waiting");
+    } catch (error) {
       toast.error(
-        (body && "error" in body && body.error) ||
-          "Quán chưa bật thanh toán tự động, vui lòng dùng cách chuyển khoản thủ công bên dưới."
+        error instanceof Error
+          ? error.message
+          : "Không thể kết nối tới PayOS. Vui lòng thử lại hoặc dùng cách thủ công bên dưới."
       );
-      setPayosStep("idle");
-    } catch {
-      toast.error("Không thể kết nối tới PayOS. Vui lòng thử lại hoặc dùng cách thủ công bên dưới.");
       setPayosStep("idle");
     }
   }

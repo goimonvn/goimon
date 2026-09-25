@@ -169,6 +169,38 @@ export const ORDER_ITEM_STATUS_LABEL: Record<OrderItemStatus, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Module 16 — Màn hình phụ dành cho Khách hàng tại quầy (Customer Facing Display)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sự kiện Supabase Realtime BROADCAST trên kênh `counter_display_channel`
+ * (KHÁC Postgres Changes đã dùng ở mọi module trước — broadcast không cần
+ * bảng nào trong DB, chỉ truyền tin trực tiếp giữa các client đang mở cùng
+ * kênh) — dùng để đồng bộ tức thời từ màn hình Thu ngân (`TableDetailSheet` ở
+ * `/staff/tables`, người GỬI) sang Màn hình phụ (`/counter/display`, người
+ * NGHE). Xem `services/counterDisplay.service.ts`.
+ *
+ * `ORDER_UPDATED` KHÔNG mang theo danh sách món (khác tên gợi ý ban đầu) —
+ * chỉ báo "hiện bàn nào lên", nội dung món luôn được Màn hình phụ tự tải/lắng
+ * nghe lại bằng ĐÚNG hook `useActiveOrders` đã dùng cho khách (Module 1), để
+ * không bao giờ lệch dữ liệu giữa 2 nơi (tránh trạng thái "review" hiển thị 1
+ * bản chụp cũ nếu khách gọi thêm món ngay lúc thu ngân đang thao tác).
+ */
+export type CounterDisplayEvent =
+  | { type: "ORDER_UPDATED"; tableId: string; tableNumber: number }
+  | {
+      type: "PAYMENT_STARTED";
+      tableId: string;
+      tableNumber: number;
+      /** id của đơn "neo" đã gửi lên `/api/payments/payos/create-link` — Màn hình phụ dùng để polling xác nhận thanh toán, xem hooks/useCounterDisplay.ts. */
+      orderId: string;
+      orderCode: number;
+      amount: number;
+      qrImageUrl: string;
+    }
+  | { type: "ORDER_CLEARED" };
+
+// ---------------------------------------------------------------------------
 // Module 2 — Nhân viên (KDS, quản lý bàn, hết món nhanh)
 // ---------------------------------------------------------------------------
 

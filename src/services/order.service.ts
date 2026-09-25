@@ -4,6 +4,7 @@ import {
   AppError,
   type CartLine,
   type CreateOrderInput,
+  type CreatePaymentLinkResult,
   type InventoryDeductionResult,
   type KdsTicket,
   type OrderItemWithMenu,
@@ -483,6 +484,43 @@ export async function getOrderPaymentStatus(
     throw new AppError("Không thể kiểm tra trạng thái thanh toán.", error);
   }
   return data as unknown as Pick<OrdersRow, "payment_status" | "status"> | null;
+}
+
+/**
+ * Tạo link/mã VietQR động qua PayOS cho 1 đơn "neo" (Module 15) — gọi
+ * `POST /api/payments/payos/create-link` (server tự tính lại số tiền = tổng
+ * mọi đơn đang hoạt động, chưa thanh toán của cả bàn, KHÔNG tin số client
+ * gửi, xem route đó). Dùng CHUNG cho cả khách (`CheckoutSheet`) LẪN thu ngân
+ * (Module 16, `TableDetailSheet` — nút "Thanh toán qua màn hình phụ") để
+ * không lặp lại y hệt logic fetch/parse response ở 2 nơi.
+ *
+ * Kiểm tra KHẲNG ĐỊNH trên "qrImageUrl" (bắt buộc, chỉ có ở kiểu thành công)
+ * thay vì phủ định trên "error" (optional) — vì "error" là thuộc tính
+ * optional, TypeScript không thể loại bỏ hẳn nhánh { error?: string } ra khỏi
+ * kiểu của body chỉ bằng phủ định, từng gây lỗi build thật (xem Phần 6
+ * `huong-dan-deploy.md`).
+ */
+export async function createPayosPaymentLink(orderId: string): Promise<CreatePaymentLinkResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/payments/payos/create-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId }),
+    });
+  } catch {
+    throw new AppError("Không thể kết nối tới PayOS. Vui lòng thử lại.");
+  }
+
+  const body = (await response.json().catch(() => null)) as
+    | CreatePaymentLinkResult
+    | { error?: string }
+    | null;
+
+  if (response.ok && body && "qrImageUrl" in body) {
+    return body;
+  }
+  throw new AppError((body && "error" in body && body.error) || "Không thể tạo link thanh toán PayOS.");
 }
 
 /**

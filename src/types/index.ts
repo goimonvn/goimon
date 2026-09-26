@@ -951,6 +951,30 @@ export interface DeliveryTrackingInfo {
   grandTotal: number;
 }
 
+/**
+ * Input tạo đơn giao hàng THAY khách khi khách gọi điện đặt hàng
+ * (`/staff/orders/new`, Module 19 mở rộng) — gần giống `DeliveryOrderInput`
+ * nhưng CỐ Ý tách interface riêng vì lựa chọn thanh toán khác hẳn: khách gọi
+ * điện không tự quét mã PayOS được nên KHÔNG có lựa chọn 'vietqr' chờ webhook,
+ * thay vào đó nhân viên chỉ chọn 1 trong 2 trạng thái XÁC NHẬN NGAY lúc tạo
+ * đơn — xem delivery.service.ts#createStaffDeliveryOrder.
+ */
+export interface StaffDeliveryOrderInput {
+  lines: CartLine[];
+  recipientName: string;
+  recipientPhone: string;
+  deliveryAddress: string;
+  deliveryNotes: string | null;
+  /**
+   * 'cod' — thu hộ khi giao, giống hệt khách tự đặt (payment_status bắt đầu
+   * 'unpaid', tự chuyển 'paid' lúc nhân viên giao hàng bấm hoàn thành đơn ở
+   * `/staff/orders`, xem updateDeliveryStatus). 'paid' — khách đã chuyển
+   * khoản trước cho quán (qua điện thoại/Zalo), nhân viên xác nhận NGAY đã
+   * nhận đủ tiền lúc tạo đơn — payment_status='paid' ngay lập tức.
+   */
+  paymentMethod: "cod" | "paid";
+}
+
 // ---------------------------------------------------------------------------
 // Module 20 — Quản lý Nhà cung cấp & Nhập hàng (Supplier & Purchase Receipts)
 // ---------------------------------------------------------------------------

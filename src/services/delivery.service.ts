@@ -7,8 +7,9 @@ import {
   type DeliveryTrackingInfo,
   type OrderItemWithMenu,
   type OrderWithItems,
+  type StaffDeliveryOrderInput,
 } from "@/types";
-import type { DeliveryConfigValue, DeliveryStatus, OrdersRow } from "@/types/database.types";
+import type { DeliveryConfigValue, DeliveryStatus, OrdersRow, PaymentMethod, PaymentStatus } from "@/types/database.types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { notifyNewDeliveryOrderTelegram } from "./telegram.service";
 
@@ -98,11 +99,72 @@ function buildNoteWithOptions(line: CartLine): string {
 }
 
 /**
- * Tạo 1 đơn giao hàng (Module 19) — cùng khuôn mẫu "insert order rồi insert
- * order_items, huỷ order nếu bước 2 lỗi" đã dùng ở order.service.ts#createOrder,
- * viết THÀNH HÀM RIÊNG (không mở rộng `createOrder`) vì input/luồng khác đáng
- * kể: không table_id/promotion/customerId, CÓ BẮT BUỘC người nhận + địa chỉ +
- * chọn payment_method NGAY lúc gửi đơn.
+ * Insert 1 dòng `orders` (order_type='delivery') + toàn bộ `order_items`
+ * tương ứng — cùng khuôn mẫu "insert order rồi insert order_items, huỷ order
+ * nếu bước 2 lỗi" đã dùng ở order.service.ts#createOrder. Tách thành hàm
+ * DÙNG CHUNG (Module 19 mở rộng) cho cả `createDeliveryOrder` (khách tự đặt
+ * qua `/delivery`) VÀ `createStaffDeliveryOrder` (nhân viên tạo hộ khách gọi
+ * điện, `/staff/orders/new`) — 2 hàm đó chỉ khác nhau ở CÁCH XÁC ĐỊNH
+ * `payment_method`/`payment_status` lúc tạo đơn (`orderFields`) và việc có
+ * bắn Telegram hay không, còn lại (tính subtotal/phí ship, insert 2 bảng,
+ * "nổ" combo qua combo_id/combo_group_id/combo_name — Module 11) là y hệt.
+ * `order_items` đã hỗ trợ sẵn cột combo từ Module 11 nên KHÔNG cần đổi gì ở
+ * schema hay ở đây để nhận đơn có combo.
+ */
+async function insertDeliveryOrderAndItems(
+  lines: CartLine[],
+  recipient: { name: string; phone: string; address: string; notes: string | null },
+  orderFields: { payment_method: PaymentMethod | null; payment_status?: PaymentStatus; paid_at?: string | null }
+): Promise<{ orderId: string; subtotal: number; shippingFee: number }> {
+  const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const shippingFee = await calculateShippingFee(subtotal);
+
+  const { data: rawOrder, error: orderError } = await supabase
+    .from("orders")
+    .insert({
+      table_id: null,
+      total_amount: subtotal,
+      shipping_fee: shippingFee,
+      order_type: "delivery",
+      recipient_name: recipient.name.trim(),
+      recipient_phone: recipient.phone.trim(),
+      delivery_address: recipient.address.trim(),
+      delivery_notes: recipient.notes?.trim() || null,
+      ...orderFields,
+    })
+    .select("*")
+    .single();
+
+  if (orderError || !rawOrder) {
+    throw new AppError("Không thể tạo đơn giao hàng. Vui lòng thử lại.", orderError);
+  }
+
+  const orderItemsPayload = lines.map((line) => ({
+    order_id: rawOrder.id,
+    menu_item_id: line.menuItem.id,
+    quantity: line.quantity,
+    notes: buildNoteWithOptions(line) || null,
+    station_type: line.stationType,
+    combo_id: line.comboId ?? null,
+    combo_group_id: line.comboGroupId ?? null,
+    combo_name: line.comboName ?? null,
+  }));
+
+  const { error: orderItemsError } = await supabase.from("order_items").insert(orderItemsPayload);
+
+  if (orderItemsError) {
+    await supabase.from("orders").delete().eq("id", rawOrder.id);
+    throw new AppError("Không thể lưu các món trong đơn. Vui lòng thử lại.", orderItemsError);
+  }
+
+  return { orderId: rawOrder.id, subtotal, shippingFee };
+}
+
+/**
+ * Tạo 1 đơn giao hàng do KHÁCH TỰ ĐẶT qua `/delivery` (Module 19) — input
+ * không có table_id/promotion/customerId, CÓ BẮT BUỘC người nhận + địa chỉ +
+ * chọn payment_method NGAY lúc gửi đơn. Xem `createStaffDeliveryOrder` bên
+ * dưới cho luồng nhân viên tạo hộ khi khách gọi điện (Module 19 mở rộng).
  *
  * `total_amount` lưu = TIỀN MÓN (subtotal), KHÔNG cộng phí ship — `shipping_fee`
  * lưu ở cột riêng — để mọi báo cáo doanh thu theo `total_amount` sẵn có
@@ -125,46 +187,11 @@ export async function createDeliveryOrder(input: DeliveryOrderInput): Promise<De
     throw new AppError("Vui lòng nhập đầy đủ tên, số điện thoại và địa chỉ người nhận.");
   }
 
-  const subtotal = input.lines.reduce((sum, line) => sum + line.lineTotal, 0);
-  const shippingFee = await calculateShippingFee(subtotal);
-
-  const { data: rawOrder, error: orderError } = await supabase
-    .from("orders")
-    .insert({
-      table_id: null,
-      total_amount: subtotal,
-      shipping_fee: shippingFee,
-      payment_method: input.paymentMethod === "cod" ? "cod" : null,
-      order_type: "delivery",
-      recipient_name: input.recipientName.trim(),
-      recipient_phone: input.recipientPhone.trim(),
-      delivery_address: input.deliveryAddress.trim(),
-      delivery_notes: input.deliveryNotes?.trim() || null,
-    })
-    .select("*")
-    .single();
-
-  if (orderError || !rawOrder) {
-    throw new AppError("Không thể tạo đơn giao hàng. Vui lòng thử lại.", orderError);
-  }
-
-  const orderItemsPayload = input.lines.map((line) => ({
-    order_id: rawOrder.id,
-    menu_item_id: line.menuItem.id,
-    quantity: line.quantity,
-    notes: buildNoteWithOptions(line) || null,
-    station_type: line.stationType,
-    combo_id: line.comboId ?? null,
-    combo_group_id: line.comboGroupId ?? null,
-    combo_name: line.comboName ?? null,
-  }));
-
-  const { error: orderItemsError } = await supabase.from("order_items").insert(orderItemsPayload);
-
-  if (orderItemsError) {
-    await supabase.from("orders").delete().eq("id", rawOrder.id);
-    throw new AppError("Không thể lưu các món trong đơn. Vui lòng thử lại.", orderItemsError);
-  }
+  const { orderId, subtotal, shippingFee } = await insertDeliveryOrderAndItems(
+    input.lines,
+    { name: input.recipientName, phone: input.recipientPhone, address: input.deliveryAddress, notes: input.deliveryNotes },
+    { payment_method: input.paymentMethod === "cod" ? "cod" : null }
+  );
 
   if (input.paymentMethod === "cod") {
     const telegramItems = input.lines.map((line) => ({ name: line.menuItem.name, quantity: line.quantity }));
@@ -180,11 +207,66 @@ export async function createDeliveryOrder(input: DeliveryOrderInput): Promise<De
   }
 
   return {
-    orderId: rawOrder.id,
+    orderId,
     itemsTotal: subtotal,
     shippingFee,
     grandTotal: subtotal + shippingFee,
     paymentMethod: input.paymentMethod,
+  };
+}
+
+/**
+ * Tạo 1 đơn giao hàng THAY khách khi khách gọi điện đặt hàng (Module 19 mở
+ * rộng) — nhân viên thao tác ở `/staff/orders/new` (đã đăng nhập `staff`/
+ * `admin`, được bảo vệ bởi `middleware.ts` giống mọi trang `/staff/*` khác).
+ * Dùng lại ĐÚNG `insertDeliveryOrderAndItems` ở trên nên combo/trừ kho/KDS
+ * hoạt động y hệt đơn khách tự đặt — chỉ khác ở việc XÁC ĐỊNH payment ngay
+ * lúc tạo đơn: khách gọi điện không tự quét mã PayOS được nên KHÔNG có bước
+ * "chờ webhook" nào — nhân viên chọn 1 trong 2:
+ * - 'cod': giữ nguyên `payment_status='unpaid'` (mặc định cột) — thu hộ khi
+ *   giao, tự chuyển 'paid' lúc nhân viên bấm "Hoàn thành đơn" ở
+ *   `/staff/orders` (xem `updateDeliveryStatus`), giống hệt đơn khách tự đặt.
+ * - 'paid': khách đã chuyển khoản trước cho quán qua điện thoại/Zalo, nhân
+ *   viên xác nhận NGAY đã nhận đủ tiền — `payment_method='vietqr'` (TÁI SỬ
+ *   DỤNG đúng giá trị đã dùng cho cả PayOS tự động lẫn nhân viên tự xác nhận
+ *   thủ công, xem ghi chú ở schema.sql Module 15/19), `payment_status='paid'`
+ *   + `paid_at` ngay lập tức — không có gì để chờ thêm.
+ *
+ * CỐ Ý KHÔNG bắn Telegram "đơn ship mới" ở đây (khác `createDeliveryOrder`)
+ * — chính nhân viên đang tạo đơn này đã biết về nó, đúng tiền lệ đã áp dụng
+ * cho `reservation.service.ts#createStaffReservation` (Module 18: "nhân viên
+ * tạo hộ KHÔNG gửi Telegram vì chính người đang thao tác đã biết").
+ */
+export async function createStaffDeliveryOrder(input: StaffDeliveryOrderInput): Promise<DeliveryOrderResult> {
+  if (input.lines.length === 0) {
+    throw new AppError("Vui lòng chọn ít nhất 1 món trước khi tạo đơn.");
+  }
+  if (!input.recipientName.trim() || !input.recipientPhone.trim() || !input.deliveryAddress.trim()) {
+    throw new AppError("Vui lòng nhập đầy đủ tên, số điện thoại và địa chỉ người nhận.");
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    throw new AppError("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang.");
+  }
+
+  const isPaid = input.paymentMethod === "paid";
+  const { orderId, subtotal, shippingFee } = await insertDeliveryOrderAndItems(
+    input.lines,
+    { name: input.recipientName, phone: input.recipientPhone, address: input.deliveryAddress, notes: input.deliveryNotes },
+    isPaid
+      ? { payment_method: "vietqr", payment_status: "paid", paid_at: new Date().toISOString() }
+      : { payment_method: "cod" }
+  );
+
+  return {
+    orderId,
+    itemsTotal: subtotal,
+    shippingFee,
+    grandTotal: subtotal + shippingFee,
+    paymentMethod: isPaid ? "vietqr" : "cod",
   };
 }
 

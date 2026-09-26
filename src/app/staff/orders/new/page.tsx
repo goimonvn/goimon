@@ -11,23 +11,24 @@ import { DeliveryCartProvider, useDeliveryCart } from "@/contexts/DeliveryCartCo
 import { useCombos } from "@/hooks/useCombos";
 import { useDeliverySettings } from "@/hooks/useDeliverySettings";
 import { useMenu } from "@/hooks/useMenu";
+import { STAFF_DELIVERY_CART_STORAGE_KEY } from "@/lib/cart";
 import type { ComboWithItems, MenuItemWithOptions } from "@/types";
-import { Bike, Coffee } from "lucide-react";
+import { Bike, ChevronLeft, Coffee } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
 /**
- * `/delivery` — trang Browse thực đơn cho kênh Giao tận nơi (Module 19),
- * CÔNG KHAI (không đăng nhập), KHÔNG gắn với bàn nào (khác `/order?table=`).
- * Tách riêng khỏi `/order` (dù dùng lại gần như y hệt các component
- * CategoryTabs/ItemOptionsSheet/CartFAB) vì `/order` bắt buộc phải nằm trong
- * `TableGate`/`TableProvider` — kênh này không có khái niệm bàn để chờ, xem
- * `DeliveryCartContext.tsx`. Từ Module 19 mở rộng, ĐÃ gồm "Combo Tiết Kiệm"
- * (Module 11) — dùng lại đúng `ComboSection`/`ComboDetailSheet`/`useCombos`
- * của `/order` (Module 1), khác biệt DUY NHẤT là gọi `addComboLines` của
- * `useDeliveryCart` thay vì `useCart`.
+ * `/staff/orders/new` — bước 1 (chọn món) của luồng "Tạo đơn giao hàng"
+ * (Module 19 mở rộng) dành cho nhân viên khi khách gọi điện đặt mua qua điện
+ * thoại. Dùng lại GẦN NHƯ Y HỆT `/delivery` (Module 19) — cùng
+ * CategoryTabs/ItemOptionsSheet/ComboSection/ComboDetailSheet/CartFAB — vì
+ * bản chất vẫn là "chọn món cho 1 đơn giao tận nơi", chỉ khác 2 điểm: (1)
+ * giỏ hàng dùng khoá localStorage riêng (xem trên) và (2) bước 2 (giỏ hàng +
+ * xác nhận) nằm ở `/staff/orders/new/cart` — một trang RIÊNG với luồng thanh
+ * toán khác hẳn `/delivery/cart` (xem trang đó).
  */
-function DeliveryMenuPage() {
+function StaffNewDeliveryOrderPage() {
   const { categories, loading } = useMenu();
   const { combos } = useCombos();
   const { addLine, addComboLines, totalCount, totalAmount } = useDeliveryCart();
@@ -43,16 +44,16 @@ function DeliveryMenuPage() {
     setSelectedItem(item);
   }
 
-  // Chỉ chặn khi ĐÃ chắc chắn tải xong cấu hình VÀ cấu hình đó nói tắt (coi
-  // như bật trong lúc đang tải/nếu lỗi, cùng triết lý fail-open đã áp dụng
-  // xuyên suốt dự án — xem DEFAULT_DELIVERY_CONFIG).
+  // Cùng công tắc "Kênh Giao tận nơi" ở /admin/settings (Module 17/19) áp
+  // dụng nhất quán cho CẢ khách tự đặt lẫn nhân viên tạo hộ — nếu quán đang
+  // tạm ngưng nhận đơn giao hàng, nhân viên cũng không nên tạo thêm đơn mới.
   if (!settingsLoading && deliverySettings && !deliverySettings.enable_delivery) {
     return (
       <div className="p-4">
         <EmptyState
           icon={<Bike className="h-10 w-10 text-muted-foreground" />}
-          title="Quán tạm ngưng nhận đơn giao hàng"
-          description="Vui lòng quay lại sau hoặc ghé quán trực tiếp."
+          title="Kênh giao hàng đang tạm tắt"
+          description='Bật lại "Kênh Giao tận nơi" ở Cấu hình thanh toán trước khi tạo đơn mới.'
         />
       </div>
     );
@@ -61,10 +62,12 @@ function DeliveryMenuPage() {
   return (
     <div className="p-4">
       <header className="mb-4 flex items-center gap-2">
-        <Bike className="h-6 w-6 text-primary" />
+        <Link href="/staff/orders" aria-label="Quay lại" className="p-1">
+          <ChevronLeft className="h-5 w-5" />
+        </Link>
         <div>
-          <h1 className="text-xl font-bold">Đặt hàng giao tận nơi</h1>
-          <p className="text-xs text-muted-foreground">Chọn món, quán sẽ giao tận địa chỉ của bạn.</p>
+          <h1 className="text-xl font-bold">Tạo đơn giao hàng</h1>
+          <p className="text-xs text-muted-foreground">Chọn món hộ khách đang đặt qua điện thoại.</p>
         </div>
       </header>
 
@@ -74,7 +77,7 @@ function DeliveryMenuPage() {
         <EmptyState
           icon={<Coffee className="h-10 w-10 text-muted-foreground" />}
           title="Quán chưa cập nhật thực đơn"
-          description="Vui lòng quay lại sau."
+          description="Vui lòng thêm món ở /admin/menu trước."
         />
       ) : (
         <>
@@ -103,15 +106,15 @@ function DeliveryMenuPage() {
         }}
       />
 
-      <CartFAB totalCount={totalCount} totalAmount={totalAmount} href="/delivery/cart" />
+      <CartFAB totalCount={totalCount} totalAmount={totalAmount} href="/staff/orders/new/cart" />
     </div>
   );
 }
 
-export default function DeliveryPage() {
+export default function StaffNewDeliveryOrderRoute() {
   return (
-    <DeliveryCartProvider>
-      <DeliveryMenuPage />
+    <DeliveryCartProvider storageKey={STAFF_DELIVERY_CART_STORAGE_KEY}>
+      <StaffNewDeliveryOrderPage />
     </DeliveryCartProvider>
   );
 }

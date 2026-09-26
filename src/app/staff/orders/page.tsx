@@ -13,7 +13,8 @@ import {
   type OrderWithItems,
 } from "@/types";
 import type { DeliveryStatus } from "@/types/database.types";
-import { Bike, MapPin, Phone } from "lucide-react";
+import { Bike, MapPin, Phone, Plus } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -39,7 +40,12 @@ function statusBadgeVariant(status: DeliveryStatus): "warning" | "secondary" | "
  * này để thao tác. Nút chuyển bước CHỈ đổi `delivery_status` (KHÔNG đụng
  * `status`/KDS) — món trong đơn vẫn phải được bếp xử lý riêng ở
  * `/staff/kds` như bình thường (đơn delivery cũng lên KDS y hệt đơn mang đi,
- * chỉ khác nhãn "🛵 Giao hàng", xem KdsItemCard.tsx).
+ * chỉ khác nhãn "🛵 Giao hàng", xem KdsItemCard.tsx). Từ Module 19 mở rộng,
+ * nút "+ Tạo đơn giao hàng" ở header mở `/staff/orders/new` — cho phép nhân
+ * viên tạo đơn THAY khách khi khách gọi điện đặt mua qua điện thoại (xem
+ * `delivery.service.ts#createStaffDeliveryOrder`); đơn mới tạo tự xuất hiện
+ * ngay ở danh sách dưới đây qua `useDeliveryOrders` (realtime), không cần
+ * làm mới trang.
  */
 export default function StaffOrdersPage() {
   const { orders, loading } = useDeliveryOrders();
@@ -72,9 +78,17 @@ export default function StaffOrdersPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Bike className="h-5 w-5 text-primary" />
-        <h1 className="text-xl font-bold">Đơn giao hàng ({orders.length})</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Bike className="h-5 w-5 text-primary" />
+          <h1 className="text-xl font-bold">Đơn giao hàng ({orders.length})</h1>
+        </div>
+        <Button asChild size="sm">
+          <Link href="/staff/orders/new">
+            <Plus className="h-4 w-4" />
+            Tạo đơn giao hàng
+          </Link>
+        </Button>
       </div>
 
       {orders.length === 0 ? (

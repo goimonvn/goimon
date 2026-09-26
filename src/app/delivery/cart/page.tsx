@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { CartLineRow } from "@/components/customer/CartLineRow";
+import { ComboCartCard } from "@/components/customer/ComboCartCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +10,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { DeliveryCartProvider, useDeliveryCart } from "@/contexts/DeliveryCartContext";
 import { useDeliverySettings } from "@/hooks/useDeliverySettings";
 import { usePaymentSettings } from "@/hooks/usePaymentSettings";
+import { groupCartLines } from "@/lib/cart";
 import { formatCurrency } from "@/lib/utils";
 import { parseDeliveryForm } from "@/lib/validation";
 import { calculateShippingFee, createDeliveryOrder } from "@/services/delivery.service";
@@ -17,7 +19,7 @@ import type { CreatePaymentLinkResult } from "@/types";
 import { Banknote, ChevronLeft, Loader2, ShoppingBag, Zap } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type Step = "form" | "payos_waiting";
@@ -30,11 +32,14 @@ type Step = "form" | "payos_waiting";
  * `payment_method` NGAY lúc gửi đơn (COD hoặc PayOS — không có lựa chọn
  * "thanh toán sau" như dine_in), và nếu chọn PayOS thì HIỆN QR NGAY TẠI TRANG
  * NÀY (dual-path fast/poll giống `CheckoutSheet`, Module 15) trước khi
- * chuyển sang `/delivery/track/[id]`.
+ * chuyển sang `/delivery/track/[id]`. Từ Module 19 mở rộng, hiển thị các dòng
+ * thuộc cùng 1 combo gộp thành `ComboCartCard` (dùng chung `groupCartLines`,
+ * xem `lib/cart.ts`) giống hệt `/order/cart`.
  */
 function DeliveryCartPageContent() {
   const router = useRouter();
-  const { lines, totalAmount, updateQuantity, removeLine, clearCart } = useDeliveryCart();
+  const { lines, totalAmount, updateQuantity, removeLine, removeComboGroup, clearCart } = useDeliveryCart();
+  const groupedLines = useMemo(() => groupCartLines(lines), [lines]);
 
   const [recipientName, setRecipientName] = useState("");
   const [recipientPhone, setRecipientPhone] = useState("");
@@ -190,9 +195,18 @@ function DeliveryCartPageContent() {
       ) : (
         <>
           <div className="flex-1 space-y-3">
-            {lines.map((line) => (
-              <CartLineRow key={line.cartLineId} line={line} onChangeQuantity={updateQuantity} onRemove={removeLine} />
-            ))}
+            {groupedLines.map((entry) =>
+              entry.kind === "single" ? (
+                <CartLineRow
+                  key={entry.line.cartLineId}
+                  line={entry.line}
+                  onChangeQuantity={updateQuantity}
+                  onRemove={removeLine}
+                />
+              ) : (
+                <ComboCartCard key={entry.groupId} groupLines={entry.groupLines} onRemove={removeComboGroup} />
+              )
+            )}
 
             <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
               <p className="text-sm font-semibold">Thông tin giao hàng</p>

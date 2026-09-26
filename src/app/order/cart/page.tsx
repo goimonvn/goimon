@@ -11,46 +11,14 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { useCart } from "@/contexts/CartContext";
 import { useCustomer } from "@/contexts/CustomerContext";
 import { useTable } from "@/contexts/TableContext";
+import { groupCartLines } from "@/lib/cart";
 import { formatCurrency } from "@/lib/utils";
 import { createOrder } from "@/services/order.service";
-import type { CartLine } from "@/types";
 import type { OrderType } from "@/types/database.types";
 import { ShoppingBag, ChevronLeft, CheckCircle2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
-
-/**
- * Gộp danh sách CartLine thành 1 mảng "hiển thị" — mỗi phần tử là 1 dòng lẻ
- * HOẶC 1 nhóm combo (giữ nguyên thứ tự xuất hiện lần đầu). Trả thẳng
- * `groupId` (thay vì để nơi gọi tự lấy `groupLines[0].comboGroupId`) — dùng
- * làm React key mà không cần index vào mảng (tsconfig bật
- * `noUncheckedIndexedAccess`, index mảng luôn trả `T | undefined`, dù
- * `groupLines` ở đây chắc chắn không rỗng vì luôn chứa ít nhất chính dòng
- * đang xét trong vòng lặp).
- */
-function groupCartLines(
-  lines: CartLine[]
-): ({ kind: "single"; line: CartLine } | { kind: "combo"; groupId: string; groupLines: CartLine[] })[] {
-  const result: ({ kind: "single"; line: CartLine } | { kind: "combo"; groupId: string; groupLines: CartLine[] })[] = [];
-  const seenGroups = new Set<string>();
-
-  for (const line of lines) {
-    if (!line.comboGroupId) {
-      result.push({ kind: "single", line });
-      continue;
-    }
-    if (seenGroups.has(line.comboGroupId)) continue;
-    seenGroups.add(line.comboGroupId);
-    result.push({
-      kind: "combo",
-      groupId: line.comboGroupId,
-      groupLines: lines.filter((l) => l.comboGroupId === line.comboGroupId),
-    });
-  }
-
-  return result;
-}
 
 function CartPageContent() {
   const router = useRouter();

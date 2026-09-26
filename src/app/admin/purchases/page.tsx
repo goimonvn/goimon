@@ -24,7 +24,7 @@ import { toast } from "sonner";
  * vì chỉ "lợi nhuận gộp hôm nay" theo ngày (Module 12).
  */
 export default function AdminPurchasesPage() {
-  const { suppliers, loading: suppliersLoading } = useSuppliers();
+  const { suppliers, loading: suppliersLoading, refetch: refetchSuppliers } = useSuppliers();
   const { receipts, loading: receiptsLoading, refetch: refetchReceipts } = usePurchaseReceipts();
 
   const [supplierFormOpen, setSupplierFormOpen] = useState(false);
@@ -59,6 +59,7 @@ export default function AdminPurchasesPage() {
       await deleteSupplier(deletingSupplier.id);
       toast.success("Đã xoá nhà cung cấp.");
       setDeletingSupplier(null);
+      refetchSuppliers();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể xoá nhà cung cấp.");
     } finally {
@@ -114,9 +115,7 @@ export default function AdminPurchasesPage() {
         open={supplierFormOpen}
         supplier={editingSupplier}
         onOpenChange={setSupplierFormOpen}
-        onSaved={() => {
-          /* useSuppliers tự làm mới qua realtime subscription */
-        }}
+        onSaved={refetchSuppliers}
       />
 
       <ConfirmDialog

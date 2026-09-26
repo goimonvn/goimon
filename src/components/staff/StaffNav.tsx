@@ -11,9 +11,9 @@ import { ShiftControl } from "./ShiftControl";
 
 const NAV_ITEMS = [
   { href: "/staff/tables", label: "Quản lý bàn", icon: LayoutGrid },
+  { href: "/staff/kds", label: "Bếp / Pha chế", icon: ChefHat },
   { href: "/staff/reservations", label: "Đặt bàn", icon: CalendarClock },
   { href: "/staff/orders", label: "Đơn giao hàng", icon: Bike },
-  { href: "/staff/kds", label: "Bếp / Pha chế", icon: ChefHat },
   { href: "/staff/menu-control", label: "Hết món nhanh", icon: Utensils },
 ];
 

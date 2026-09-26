@@ -209,14 +209,55 @@ export interface FeedbacksRow {
   created_at: string;
 }
 
-/** Một nguyên liệu trong kho (Module 6) — `stock_quantity` có thể ÂM (xem ghi chú trong schema.sql). */
+/**
+ * Một nguyên liệu trong kho (Module 6) — `stock_quantity` có thể ÂM (xem ghi
+ * chú trong schema.sql). `avg_cost`/`last_purchase_unit_cost` (Module 20) CHỈ
+ * được cập nhật bởi RPC `record_purchase_receipt` — nguyên liệu chưa từng
+ * nhập qua phiếu sẽ có `avg_cost = 0`.
+ */
 export interface IngredientsRow {
   id: string;
   name: string;
   unit: string;
   stock_quantity: number;
   min_threshold: number;
+  avg_cost: number;
+  last_purchase_unit_cost: number | null;
   created_at: string;
+}
+
+/** 1 nhà cung cấp (Module 20). */
+export interface SuppliersRow {
+  id: string;
+  name: string;
+  phone: string | null;
+  address: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+/**
+ * 1 phiếu nhập hàng (Module 20) — `total_amount` do RPC
+ * `record_purchase_receipt` tự tính từ các dòng, không tin số client gửi.
+ */
+export interface PurchaseReceiptsRow {
+  id: string;
+  supplier_id: string;
+  receipt_date: string;
+  total_amount: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** 1 dòng nguyên liệu trong 1 phiếu nhập hàng (Module 20) — `line_total` là generated column, luôn = quantity * unit_cost. */
+export interface PurchaseReceiptItemsRow {
+  id: string;
+  receipt_id: string;
+  ingredient_id: string;
+  quantity: number;
+  unit_cost: number;
+  line_total: number;
 }
 
 /** 1 dòng công thức: 1 món trong menu tiêu hao bao nhiêu đơn vị của 1 nguyên liệu. */
@@ -566,8 +607,8 @@ export interface Database {
       >;
       ingredients: TableDefinition<
         IngredientsRow,
-        Omit<IngredientsRow, "id" | "created_at" | "stock_quantity"> &
-          Partial<Pick<IngredientsRow, "stock_quantity">>,
+        Omit<IngredientsRow, "id" | "created_at" | "stock_quantity" | "avg_cost" | "last_purchase_unit_cost"> &
+          Partial<Pick<IngredientsRow, "stock_quantity" | "avg_cost" | "last_purchase_unit_cost">>,
         Partial<Omit<IngredientsRow, "id" | "created_at">>
       >;
       recipe_items: TableDefinition<
@@ -651,6 +692,28 @@ export interface Database {
           >,
         Partial<Omit<ReservationsRow, "id" | "created_at">>
       >;
+      suppliers: TableDefinition<
+        SuppliersRow,
+        Omit<SuppliersRow, "id" | "created_at" | "phone" | "address" | "note"> &
+          Partial<Pick<SuppliersRow, "phone" | "address" | "note">>,
+        Partial<Omit<SuppliersRow, "id" | "created_at">>
+      >;
+      // purchase_receipts/purchase_receipt_items KHÔNG được insert/update trực
+      // tiếp qua client (xem RLS — chỉ SELECT admin, mọi lần ghi đi qua RPC
+      // `record_purchase_receipt`) — Insert/Update ở đây vẫn khai báo đủ hình
+      // dạng để khớp kiểu chung `TableDefinition`, nhưng service.ts không gọi
+      // `.insert()`/`.update()` trên 2 bảng này.
+      purchase_receipts: TableDefinition<
+        PurchaseReceiptsRow,
+        Omit<PurchaseReceiptsRow, "id" | "created_at" | "receipt_date" | "total_amount" | "note" | "created_by"> &
+          Partial<Pick<PurchaseReceiptsRow, "receipt_date" | "total_amount" | "note" | "created_by">>,
+        Partial<Omit<PurchaseReceiptsRow, "id" | "created_at">>
+      >;
+      purchase_receipt_items: TableDefinition<
+        PurchaseReceiptItemsRow,
+        Omit<PurchaseReceiptItemsRow, "id" | "line_total">,
+        Partial<Omit<PurchaseReceiptItemsRow, "id">>
+      >;
     };
     Views: Record<string, never>;
     Functions: {
@@ -704,6 +767,16 @@ export interface Database {
           p_order_code: number;
         };
         Returns: ConfirmPayosPaymentResultRow[];
+      };
+      record_purchase_receipt: {
+        Args: {
+          p_supplier_id: string;
+          p_receipt_date: string;
+          p_note: string | null;
+          /** Mảng JSONB [{ingredient_id, quantity, unit_cost}, ...] — xem schema.sql Module 20. */
+          p_items: { ingredient_id: string; quantity: number; unit_cost: number }[];
+        };
+        Returns: string;
       };
     };
     Enums: Record<string, never>;

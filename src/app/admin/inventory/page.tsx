@@ -3,6 +3,7 @@
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { IngredientFormDialog } from "@/components/admin/IngredientFormDialog";
 import { IngredientTable } from "@/components/admin/IngredientTable";
+import { MenuItemMarginTable } from "@/components/admin/MenuItemMarginTable";
 import { RecipeEditor } from "@/components/admin/RecipeEditor";
 import { RestockDialog } from "@/components/admin/RestockDialog";
 import { StatCard } from "@/components/admin/StatCard";
@@ -10,10 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useIngredients } from "@/hooks/useIngredients";
+import { useMenuItemMargins } from "@/hooks/useMenuItemMargins";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { deleteIngredient } from "@/services/inventory.service";
 import type { IngredientsRow } from "@/types/database.types";
-import { AlertTriangle, Package, Plus } from "lucide-react";
+import { AlertTriangle, Package, Plus, Truck } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -22,10 +25,16 @@ import { toast } from "sonner";
  * nhập thêm hàng, cấu hình chặn/cho phép khi thiếu nguyên liệu, và công thức
  * (định lượng nguyên liệu) của từng món — hệ thống tự trừ kho khi bếp bắt
  * đầu làm món (xem KDS + inventory.service.checkAndDeductInventoryForOrderItem).
+ *
+ * "Nhập kho nhanh" (RestockDialog, nút ở IngredientTable) chỉ cộng số lượng,
+ * KHÔNG ghi giá vốn — để ghi phiếu nhập hàng đầy đủ (nhà cung cấp + giá nhập
+ * từng dòng, tự cập nhật giá vốn bình quân) và xem giá vốn/biên lợi nhuận
+ * theo món (Module 20), vào trang `/admin/purchases`.
  */
 export default function AdminInventoryPage() {
   const { ingredients, loading, refetch } = useIngredients();
   const { settings, loading: settingsLoading, updating, toggleBlockWhenInsufficientStock } = useShopSettings();
+  const { margins, loading: marginsLoading, refetch: refetchMargins } = useMenuItemMargins();
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingIngredient, setEditingIngredient] = useState<IngredientsRow | null>(null);
@@ -69,10 +78,18 @@ export default function AdminInventoryPage() {
             Theo dõi tồn kho, nhập thêm hàng và quản lý công thức từng món.
           </p>
         </div>
-        <Button onClick={handleAddNew}>
-          <Plus className="mr-1 h-4 w-4" />
-          Thêm nguyên liệu
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/admin/purchases">
+              <Truck className="mr-1 h-4 w-4" />
+              Ghi phiếu nhập hàng
+            </Link>
+          </Button>
+          <Button onClick={handleAddNew}>
+            <Plus className="mr-1 h-4 w-4" />
+            Thêm nguyên liệu
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -112,6 +129,22 @@ export default function AdminInventoryPage() {
       />
 
       <RecipeEditor ingredients={ingredients} />
+
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold">Giá vốn &amp; Biên lợi nhuận theo món</h2>
+            <p className="text-sm text-muted-foreground">
+              Tính từ giá vốn bình quân của nguyên liệu (cập nhật khi ghi phiếu nhập hàng) nhân với công thức từng
+              món. Sắp xếp biên lợi nhuận thấp → cao.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={refetchMargins}>
+            Làm mới
+          </Button>
+        </div>
+        <MenuItemMarginTable margins={margins} loading={marginsLoading} />
+      </div>
 
       <IngredientFormDialog
         open={formOpen}

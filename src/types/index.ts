@@ -16,6 +16,7 @@ import type {
   PaymentMethod,
   PromotionDiscountType,
   PromotionsRow,
+  PurchaseReceiptsRow,
   RecipeItemsRow,
   ReservationsRow,
   ReservationStatus,
@@ -24,6 +25,7 @@ import type {
   StaffCallRequestType,
   StaffCallsRow,
   StationType,
+  SuppliersRow,
   TablesRow,
   TableShape,
   TableStatus,
@@ -947,4 +949,84 @@ export interface DeliveryOrderResult {
 export interface DeliveryTrackingInfo {
   order: OrderWithItems;
   grandTotal: number;
+}
+
+// ---------------------------------------------------------------------------
+// Module 20 — Quản lý Nhà cung cấp & Nhập hàng (Supplier & Purchase Receipts)
+// ---------------------------------------------------------------------------
+
+/** Input tạo/sửa nhà cung cấp ở `/admin/purchases` — CRUD đầy đủ (khác phiếu nhập, xem PurchaseReceiptFormInput), xem purchasing.service.ts. */
+export interface SupplierFormInput {
+  name: string;
+  phone: string;
+  address: string;
+  note: string;
+}
+
+/** 1 dòng trong danh sách nguyên liệu đang soạn cho 1 phiếu nhập hàng ở `PurchaseReceiptFormDialog` (chưa lưu DB) — giữ sẵn tên/đơn vị để hiển thị, không cần tra lại danh sách nguyên liệu. */
+export interface PurchaseReceiptItemDraft {
+  ingredientId: string;
+  ingredientName: string;
+  ingredientUnit: string;
+  quantity: number;
+  unitCost: number;
+}
+
+/**
+ * Input tạo 1 phiếu nhập hàng — gửi NGUYÊN VẸN cho RPC `record_purchase_receipt`
+ * (ghi nguyên tử: tạo phiếu + cộng kho + cập nhật giá vốn bình quân từng dòng),
+ * xem schema.sql Module 20. KHÔNG hỗ trợ sửa/xoá sau khi tạo — sổ sách bất
+ * biến, xem ghi chú ở đầu Module 20 trong schema.sql.
+ */
+export interface PurchaseReceiptFormInput {
+  supplierId: string;
+  /** Chuỗi "yyyy-MM-dd" — mặc định hôm nay, có thể đổi để ghi bù phiếu nhập ngày trước. */
+  receiptDate: string;
+  note: string;
+  items: PurchaseReceiptItemDraft[];
+}
+
+/** 1 dòng nguyên liệu của 1 phiếu nhập hàng ĐÃ LƯU, kèm tên/đơn vị nguyên liệu — dùng để hiển thị chi tiết phiếu (khác PurchaseReceiptItemDraft — dòng đang soạn, chưa lưu). */
+export interface PurchaseReceiptItemWithIngredient {
+  id: string;
+  ingredientName: string;
+  ingredientUnit: string;
+  quantity: number;
+  unitCost: number;
+  lineTotal: number;
+}
+
+/**
+ * Phiếu nhập hàng kèm tên nhà cung cấp + toàn bộ dòng nguyên liệu — tải kèm
+ * luôn `items` khi lấy danh sách (KHÔNG lazy-load riêng từng phiếu lúc mở
+ * rộng chi tiết) vì số phiếu nhập của 1 quán nhỏ không đáng để tối ưu N+1,
+ * khớp quy ước "tải hết 1 lần" đã dùng cho ComboWithItems/ZoneWithTables.
+ */
+export interface PurchaseReceiptWithSupplier extends PurchaseReceiptsRow {
+  supplierName: string;
+  items: PurchaseReceiptItemWithIngredient[];
+}
+
+/**
+ * Giá vốn + biên lợi nhuận CỦA 1 MÓN — tính hoàn toàn ở CLIENT (không có
+ * view/RPC riêng, xem ghi chú ở đầu Module 20 trong schema.sql) bằng cách
+ * cộng (recipe_items.quantity_required * ingredients.avg_cost) của mọi
+ * nguyên liệu trong công thức món đó. `hasCostData = false` khi món có ít
+ * nhất 1 nguyên liệu CHƯA từng nhập qua phiếu nào (avg_cost vẫn = 0) — giá
+ * vốn/biên lợi nhuận lúc này bị coi là THIẾU DỮ LIỆU, không hiển thị "lời
+ * 100%" gây hiểu lầm (xem MenuItemMarginTable.tsx).
+ */
+export interface MenuItemMargin {
+  menuItemId: string;
+  menuItemName: string;
+  categoryName: string;
+  price: number;
+  /** Tổng giá vốn nguyên liệu cho 1 phần món (theo công thức), null nếu món chưa có công thức (recipe_items rỗng). */
+  cost: number | null;
+  /** = price - cost, null nếu cost null. */
+  margin: number | null;
+  /** = margin / price * 100 (làm tròn), null nếu cost null hoặc price = 0. */
+  marginPercent: number | null;
+  /** false nếu món chưa có công thức, hoặc có công thức nhưng ít nhất 1 nguyên liệu chưa từng nhập hàng qua phiếu (avg_cost = 0). */
+  hasCostData: boolean;
 }

@@ -1307,18 +1307,52 @@ alter table orders add column if not exists pickup_time timestamptz;
 alter table orders add column if not exists customer_name text;
 alter table orders add column if not exists customer_phone text;
 
+-- An toàn khi chạy trên database ĐÃ CÓ SẴN đơn hàng thật từ trước Module 13
+-- (cột order_type ở dòng trên chỉ áp default cho dòng MỚI/dòng chưa từng có
+-- cột này — "if not exists" khiến default KHÔNG được áp lại nếu cột đã tồn
+-- tại từ 1 lần chạy dở dang trước đó).
+--
+-- QUAN TRỌNG: constraint bên dưới khai báo LUÔN cả 'delivery' ngay từ đây
+-- (thay vì chỉ ('dine_in','takeaway') rồi mới nới ra ở khối Module 19 như
+-- cách viết ban đầu) — vì schema.sql giờ chạy GỘP 1 LẦN cho toàn bộ Module
+-- 13-20 trên database ĐÃ CÓ SẴN đơn hàng thật, kể cả đơn giao hàng đã được
+-- gắn đúng order_type='delivery' từ trước (frontend Module 19 đã lên
+-- production và có khách đặt thật). Nếu chỉ cho ('dine_in','takeaway') ở
+-- bước NÀY rồi mới nới ra sau, câu update chuẩn hoá bên dưới sẽ tự RESET
+-- nhầm các đơn 'delivery' có sẵn về lại 'dine_in' (vì lúc đó 'delivery'
+-- chưa nằm trong danh sách "hợp lệ" mà update coi là "đã đúng, không đụng
+-- vào") — rồi constraint `orders_table_id_required_check` ngay sau đó lại
+-- báo lỗi vì đơn 'dine_in' mà table_id null. Khai báo đủ 3 giá trị NGAY TỪ
+-- ĐẦU tránh hẳn được vòng lặp lỗi này; khối Module 19 bên dưới re-declare
+-- lại đúng constraint này lần nữa — vô hại, chỉ là thao tác thừa (idempotent).
+update orders set order_type = 'dine_in'
+  where order_type is null or order_type not in ('dine_in', 'takeaway', 'delivery');
+
 alter table orders drop constraint if exists orders_order_type_check;
 alter table orders add constraint orders_order_type_check
-  check (order_type in ('dine_in', 'takeaway'));
+  check (order_type in ('dine_in', 'takeaway', 'delivery'));
 
 alter table orders alter column table_id drop not null;
 
--- Ràng buộc toàn vẹn: đơn "tại bàn" LUÔN phải có bàn; đơn "mang đi" thì
--- không bắt buộc — đảm bảo ở tầng database thay vì chỉ tin tưởng client gửi
--- đúng (xem order.service.createOrder).
+-- Chuẩn hoá thêm: đơn có table_id null nhưng order_type vẫn đang là
+-- 'dine_in' mặc định (dữ liệu thật đã phát sinh trước khi được set đúng) —
+-- tạm chuyển về 'takeaway' (an toàn để chạy trên DATABASE MỚI TINH, vì
+-- KHÔNG tham chiếu recipient_name/delivery_address/shipping_fee — các cột
+-- này chỉ được thêm ở khối Module 19 bên dưới, chưa chắc đã tồn tại ở đây
+-- nếu đây là lần chạy schema.sql ĐẦU TIÊN trên 1 database trống). Dòng nào
+-- thật ra là đơn giao hàng sẽ được xét lại đúng thành 'delivery' ở bước
+-- chuẩn hoá của khối Module 19 (khi đó recipient_name/delivery_address/
+-- shipping_fee đã chắc chắn tồn tại).
+update orders set order_type = 'takeaway'
+  where order_type = 'dine_in' and table_id is null;
+
+-- Ràng buộc toàn vẹn: đơn "tại bàn" LUÔN phải có bàn; đơn "mang đi"/"giao
+-- hàng" thì không bắt buộc — đảm bảo ở tầng database thay vì chỉ tin tưởng
+-- client gửi đúng (xem order.service.createOrder). Khai báo đủ 3 giá trị
+-- NGAY TỪ ĐẦU, cùng lý do đã giải thích ở trên.
 alter table orders drop constraint if exists orders_table_id_required_check;
 alter table orders add constraint orders_table_id_required_check
-  check ((order_type = 'dine_in' and table_id is not null) or (order_type = 'takeaway'));
+  check ((order_type = 'dine_in' and table_id is not null) or (order_type in ('takeaway', 'delivery')));
 
 -- Bật Realtime (Supabase Dashboard > Database > Replication), hoặc chạy:
 -- alter publication supabase_realtime add table tables, menu_items, orders, order_items, staff_calls, feedbacks, ingredients, shifts, promotions, combos, combo_items, expenses, zones, system_settings, reservations;
@@ -1376,8 +1410,14 @@ alter table orders drop constraint if exists orders_payment_status_check;
 
 update orders set payment_method = 'vietqr' where payment_method = 'transfer';
 
+-- Lưu ý: cho phép LUÔN cả 'cod' ở đây (dù giá trị này chỉ thật sự có Ý
+-- NGHĨA nghiệp vụ từ Module 19 — Giao tận nơi) — vì schema.sql giờ được
+-- chạy GỘP 1 LẦN cho toàn bộ Module 13-20 trên database đã có sẵn đơn hàng
+-- thật (kể cả đơn 'cod' đã phát sinh từ khi frontend Module 19 lên production
+-- trước khi DB được migrate). Nếu chỉ cho ('cash','vietqr') ở đây, câu lệnh
+-- add constraint này sẽ tự báo lỗi "violated by some row" ngay tại chỗ.
 alter table orders add constraint orders_payment_method_check
-  check (payment_method in ('cash', 'vietqr'));
+  check (payment_method in ('cash', 'vietqr', 'cod'));
 alter table orders add constraint orders_payment_status_check
   check (payment_status in ('unpaid', 'paid', 'failed', 'refunded'));
 
@@ -1709,6 +1749,15 @@ alter table orders drop constraint if exists orders_delivery_status_check;
 alter table orders add constraint orders_delivery_status_check
   check (delivery_status in ('pending', 'preparing', 'delivering', 'completed', 'cancelled'));
 
+-- Xét lại đúng: dòng nào bị Module 13 tạm chuyển về 'takeaway' (vì lúc đó
+-- 'delivery' chưa phải giá trị hợp lệ) nhưng THẬT RA là đơn giao hàng —
+-- nhận biết qua đã có recipient_name/delivery_address/shipping_fee — thì
+-- chuyển đúng lại thành 'delivery' bây giờ khi giá trị này đã có cột và
+-- sắp được thêm vào CHECK ngay bên dưới.
+update orders set order_type = 'delivery'
+  where order_type = 'takeaway'
+    and (recipient_name is not null or delivery_address is not null or shipping_fee > 0);
+
 -- ---- order_type: thêm 'delivery' — GIỮ NGUYÊN 'dine_in'/'takeaway' cũ. ----
 alter table orders drop constraint if exists orders_order_type_check;
 alter table orders add constraint orders_order_type_check
@@ -1830,3 +1879,246 @@ begin
   returning o.id, o.table_id, t.table_number, o.customer_id, o.total_amount;
 end;
 $$;
+
+-- ============================================================================
+-- Module 20 — Quản lý Nhà cung cấp & Nhập hàng (Supplier & Purchase Receipts)
+--
+-- Mở rộng Module 6 (Quản lý kho theo công thức): trước module này, "Nhập kho"
+-- (RPC adjust_ingredient_stock, RestockDialog.tsx) chỉ cộng số lượng — KHÔNG
+-- ghi nhận nhà cung cấp nào, giá nhập bao nhiêu, nên hệ thống không có cách
+-- nào tính GIÁ VỐN thật của từng nguyên liệu, và vì vậy không tính được GIÁ
+-- VỐN/LỢI NHUẬN BIÊN theo từng món — "Lợi nhuận gộp hôm nay" ở Dashboard
+-- (Module 12) vẫn chỉ là doanh thu trừ TỔNG chi phí trong ngày, không biết
+-- món nào đang lời nhiều/ít.
+--
+-- Module này KHÔNG thay thế "Nhập kho nhanh" (adjust_ingredient_stock) — vẫn
+-- giữ nguyên cho trường hợp chỉnh nhanh không cần ghi nhà cung cấp/giá (vd
+-- kiểm kê, sửa sai số). Đây là ĐƯỜNG THỨ 2, đầy đủ hơn: ghi 1 "phiếu nhập
+-- hàng" theo nhà cung cấp, nhiều dòng nguyên liệu + số lượng + đơn giá mỗi
+-- dòng, và tự động:
+--   1. Cộng kho (giống adjust_ingredient_stock, cùng cột stock_quantity).
+--   2. Cập nhật GIÁ VỐN BÌNH QUÂN GIA QUYỀN (weighted average cost) của từng
+--      nguyên liệu: avg_cost_mới = (tồn_cũ * giá_vốn_cũ + SL_nhập * đơn_giá)
+--      / (tồn_cũ + SL_nhập) — công thức kế toán hàng tồn kho phổ biến nhất
+--      (tương tự "average cost method"), không chọn FIFO/LIFO vì phức tạp hơn
+--      nhiều (phải lưu từng lớp giá theo thời gian) và không cần thiết ở quy
+--      mô 1 quán cà phê.
+--
+-- GIÁ VỐN THEO MÓN được suy ra hoàn toàn ở tầng CLIENT (không có cột/view mới
+-- trong Postgres) bằng cách CỘNG (recipe_items.quantity_required *
+-- ingredients.avg_cost) cho từng món — TÁI SỬ DỤNG đúng bảng `recipe_items`
+-- đã có từ Module 6, giống cách analytics.service.ts (Module 10) luôn tính
+-- toán tổng hợp ở client thay vì tạo view/RPC riêng cho mỗi báo cáo.
+--
+-- PHIẾU NHẬP HÀNG LÀ SỔ SÁCH BẤT BIẾN (immutable ledger) — giống hệt
+-- `feedbacks`/`vat_invoices`: CHỈ tạo mới (qua RPC record_purchase_receipt) +
+-- đọc lại, KHÔNG có đường sửa/xoá 1 phiếu đã ghi. Lý do: xoá/sửa 1 phiếu sau
+-- khi giá vốn bình quân đã bị nó làm thay đổi sẽ để lại số liệu MÂU THUẪN
+-- (tồn kho/giá vốn hiện tại vẫn phản ánh phiếu đó, nhưng lịch sử thì không) —
+-- nếu nhập nhầm, ghi thêm 1 phiếu điều chỉnh mới (KHÔNG được nhập số lượng
+-- âm — xem CHECK constraint) thay vì sửa/xoá phiếu cũ.
+-- ============================================================================
+
+-- ---- ingredients: 2 cột mới cho giá vốn. `avg_cost` bắt đầu từ 0 cho mọi
+--      nguyên liệu hiện có — CHỈ được cập nhật bởi record_purchase_receipt
+--      bên dưới (không có đường sửa tay), nên món CHƯA từng được nhập qua
+--      phiếu mới sẽ có giá vốn = 0 (hiển thị rõ "chưa có dữ liệu giá vốn" ở
+--      UI thay vì ngộ nhận biên lợi nhuận 100%, xem MenuItemMarginTable.tsx).
+--      `last_purchase_unit_cost` chỉ để CHỦ QUÁN THAM KHẢO (giá nhập lần gần
+--      nhất, dễ so sánh biến động giá hơn là nhìn giá bình quân), KHÔNG dùng
+--      để tính toán gì. ----
+alter table ingredients add column if not exists avg_cost numeric(12, 2) not null default 0;
+alter table ingredients add column if not exists last_purchase_unit_cost numeric(12, 2);
+
+create table if not exists suppliers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text,
+  address text,
+  note text,
+  created_at timestamptz not null default now()
+);
+
+-- ---- purchase_receipts: 1 phiếu nhập hàng = 1 lần nhập từ 1 nhà cung cấp,
+--      có thể gồm nhiều dòng nguyên liệu (xem purchase_receipt_items).
+--      `supplier_id on delete restrict` (KHÁC recipe_items.ingredient_id
+--      cascade ở Module 6) — CỐ Ý, giống combo_items.menu_item_id ở Module
+--      11: đây là sổ sách tài chính, không cho xoá âm thầm nhà cung cấp đang
+--      có lịch sử nhập hàng (chặn ở tầng DB, service.ts bắt lỗi FK để báo
+--      thân thiện "xoá nhà cung cấp này trước phải..."). `total_amount` LƯU
+--      LẠI (không suy ra lúc đọc) — snapshot tổng tiền phiếu tại thời điểm
+--      ghi, do RPC tự tính từ các dòng, KHÔNG tin số client gửi (khác đa số
+--      "total_amount" khác trong dự án vốn do client tự tính rồi gửi thẳng,
+--      xem ghi chú "đánh đổi" ở Module 9 — ở đây RPC tính lại vì đây là dữ
+--      liệu ảnh hưởng trực tiếp tới giá vốn, cần chắc chắn hơn). ----
+create table if not exists purchase_receipts (
+  id uuid primary key default gen_random_uuid(),
+  supplier_id uuid not null references suppliers (id) on delete restrict,
+  receipt_date date not null default current_date,
+  total_amount numeric(14, 2) not null default 0 check (total_amount >= 0),
+  note text,
+  created_by uuid references profiles (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- ---- purchase_receipt_items: `ingredient_id on delete restrict` (không cho
+--      xoá nguyên liệu đã có lịch sử nhập hàng — cùng lý do supplier_id ở
+--      trên). `line_total` là GENERATED COLUMN (luôn = quantity * unit_cost,
+--      Postgres tự tính, không thể ghi sai/lệch tay) — lần đầu tiên dự án
+--      dùng generated column cho 1 "tổng dòng" thay vì để client tự tính rồi
+--      gửi kèm (khác order_items/combo_items...), vì đây là dữ liệu ảnh
+--      hưởng giá vốn nên đáng để chắc chắn hơn 1 chút. ----
+create table if not exists purchase_receipt_items (
+  id uuid primary key default gen_random_uuid(),
+  receipt_id uuid not null references purchase_receipts (id) on delete cascade,
+  ingredient_id uuid not null references ingredients (id) on delete restrict,
+  quantity numeric(12, 3) not null check (quantity > 0),
+  unit_cost numeric(12, 2) not null check (unit_cost >= 0),
+  line_total numeric(14, 2) generated always as (quantity * unit_cost) stored
+);
+
+create index if not exists idx_purchase_receipts_supplier on purchase_receipts (supplier_id);
+create index if not exists idx_purchase_receipts_date on purchase_receipts (receipt_date);
+create index if not exists idx_purchase_receipt_items_receipt on purchase_receipt_items (receipt_id);
+create index if not exists idx_purchase_receipt_items_ingredient on purchase_receipt_items (ingredient_id);
+
+-- ---- record_purchase_receipt: ghi NGUYÊN TỬ toàn bộ 1 phiếu nhập hàng —
+--      insert purchase_receipts + N dòng purchase_receipt_items + cộng kho
+--      VÀ cập nhật giá vốn bình quân gia quyền cho từng nguyên liệu, tất cả
+--      trong 1 transaction (Postgres function luôn atomic). `security
+--      invoker` (mặc định, giống mọi RPC khác trừ redeem_promotion) — chạy
+--      với quyền của CHÍNH admin đang gọi, RLS của cả 3 bảng bên dưới vẫn áp
+--      dụng bình thường (không bypass). `p_items` nhận 1 mảng JSONB
+--      [{ingredient_id, quantity, unit_cost}, ...] thay vì nhiều tham số
+--      riêng lẻ — cách duy nhất để 1 hàm SQL nhận "số dòng bất kỳ" atomic
+--      trong 1 lần gọi (giống tinh thần saveCombo ở combo.service.ts, nhưng
+--      đó ghi nhiều câu lệnh riêng từ client — ở đây bắt buộc phải atomic
+--      thật sự vì còn phải cập nhật giá vốn bình quân, không thể tách rời).
+--
+--      Công thức giá vốn bình quân coi tồn kho ÂM/BẰNG 0 như tồn kho = 0
+--      (dùng greatest(tồn_cũ, 0)) — nếu không, tồn kho âm (được phép, xem
+--      ghi chú ingredients ở Module 6) sẽ cho ra công thức vô nghĩa (vd tồn
+--      -5 * giá cũ cộng với hàng mới sẽ kéo giá vốn xuống sai lệch); coi như
+--      "bắt đầu lại từ giá nhập lần này" khi tồn kho đang ở mức 0 trở xuống. ----
+create or replace function public.record_purchase_receipt(
+  p_supplier_id uuid,
+  p_receipt_date date,
+  p_note text,
+  p_items jsonb
+) returns uuid
+language plpgsql
+as $$
+declare
+  v_receipt_id uuid;
+  v_total numeric := 0;
+  v_item jsonb;
+  v_ingredient_id uuid;
+  v_quantity numeric;
+  v_unit_cost numeric;
+  v_old_stock numeric;
+  v_old_avg numeric;
+  v_base_stock numeric;
+begin
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'Phiếu nhập hàng phải có ít nhất 1 dòng nguyên liệu.';
+  end if;
+
+  select coalesce(sum((item->>'quantity')::numeric * (item->>'unit_cost')::numeric), 0)
+  into v_total
+  from jsonb_array_elements(p_items) as item;
+
+  insert into public.purchase_receipts (supplier_id, receipt_date, note, total_amount, created_by)
+  values (p_supplier_id, p_receipt_date, nullif(p_note, ''), v_total, auth.uid())
+  returning id into v_receipt_id;
+
+  for v_item in select * from jsonb_array_elements(p_items)
+  loop
+    v_ingredient_id := (v_item->>'ingredient_id')::uuid;
+    v_quantity := (v_item->>'quantity')::numeric;
+    v_unit_cost := (v_item->>'unit_cost')::numeric;
+
+    if v_quantity is null or v_quantity <= 0 then
+      raise exception 'Số lượng nhập phải lớn hơn 0.';
+    end if;
+    if v_unit_cost is null or v_unit_cost < 0 then
+      raise exception 'Đơn giá nhập không được âm.';
+    end if;
+
+    insert into public.purchase_receipt_items (receipt_id, ingredient_id, quantity, unit_cost)
+    values (v_receipt_id, v_ingredient_id, v_quantity, v_unit_cost);
+
+    select stock_quantity, avg_cost into v_old_stock, v_old_avg
+    from public.ingredients
+    where id = v_ingredient_id
+    for update;
+
+    if not found then
+      raise exception 'Nguyên liệu không tồn tại.';
+    end if;
+
+    v_base_stock := greatest(v_old_stock, 0);
+
+    update public.ingredients
+    set
+      stock_quantity = stock_quantity + v_quantity,
+      avg_cost = (v_base_stock * v_old_avg + v_quantity * v_unit_cost) / (v_base_stock + v_quantity),
+      last_purchase_unit_cost = v_unit_cost
+    where id = v_ingredient_id;
+  end loop;
+
+  return v_receipt_id;
+end;
+$$;
+
+alter table suppliers enable row level security;
+alter table purchase_receipts enable row level security;
+alter table purchase_receipt_items enable row level security;
+
+-- ---- suppliers: CHỈ chủ quán CRUD đầy đủ (giống expenses — dữ liệu giá
+--      nhập/nhà cung cấp là số liệu tài chính, staff không cần và không nên
+--      thấy; `/admin/purchases` vốn đã bị middleware.ts chặn staff ở tầng
+--      route, đây là lớp phòng thủ thứ 2 ở tầng RLS). ----
+drop policy if exists "Admin read suppliers" on suppliers;
+create policy "Admin read suppliers" on suppliers for select
+  to authenticated
+  using (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin insert suppliers" on suppliers;
+create policy "Admin insert suppliers" on suppliers for insert
+  to authenticated
+  with check (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin update suppliers" on suppliers;
+create policy "Admin update suppliers" on suppliers for update
+  to authenticated
+  using (public.current_user_role() = 'admin')
+  with check (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin delete suppliers" on suppliers;
+create policy "Admin delete suppliers" on suppliers for delete
+  to authenticated
+  using (public.current_user_role() = 'admin');
+
+-- ---- purchase_receipts/purchase_receipt_items: CHỈ đọc + tạo (qua RPC ở
+--      trên) — KHÔNG có policy update/delete nào, đúng thiết kế "sổ sách bất
+--      biến" đã giải thích ở đầu Module 20 (giống hệt feedbacks: chỉ insert +
+--      admin select, không có update/delete). ----
+drop policy if exists "Admin read purchase_receipts" on purchase_receipts;
+create policy "Admin read purchase_receipts" on purchase_receipts for select
+  to authenticated
+  using (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin insert purchase_receipts" on purchase_receipts;
+create policy "Admin insert purchase_receipts" on purchase_receipts for insert
+  to authenticated
+  with check (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin read purchase_receipt_items" on purchase_receipt_items;
+create policy "Admin read purchase_receipt_items" on purchase_receipt_items for select
+  to authenticated
+  using (public.current_user_role() = 'admin');
+
+drop policy if exists "Admin insert purchase_receipt_items" on purchase_receipt_items;
+create policy "Admin insert purchase_receipt_items" on purchase_receipt_items for insert
+  to authenticated
+  with check (public.current_user_role() = 'admin');

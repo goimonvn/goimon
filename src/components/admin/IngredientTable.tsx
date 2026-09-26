@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrency } from "@/lib/utils";
 import type { IngredientsRow } from "@/types/database.types";
 import { Pencil, PlusCircle, Trash2 } from "lucide-react";
 
@@ -42,6 +43,7 @@ export function IngredientTable({ ingredients, loading, onRestock, onEdit, onDel
             <th className="px-4 py-3 font-medium">Nguyên liệu</th>
             <th className="px-4 py-3 text-right font-medium">Tồn kho</th>
             <th className="hidden px-4 py-3 text-right font-medium sm:table-cell">Ngưỡng cảnh báo</th>
+            <th className="hidden px-4 py-3 text-right font-medium md:table-cell">Giá vốn BQ</th>
             <th className="px-4 py-3 text-right font-medium">Thao tác</th>
           </tr>
         </thead>
@@ -66,6 +68,10 @@ export function IngredientTable({ ingredients, loading, onRestock, onEdit, onDel
                 </td>
                 <td className="hidden px-4 py-3 text-right tabular-nums text-muted-foreground sm:table-cell">
                   {ingredient.min_threshold}
+                </td>
+                <td className="hidden px-4 py-3 text-right tabular-nums text-muted-foreground md:table-cell">
+                  {/* avg_cost = 0 nghĩa là nguyên liệu này CHƯA từng được ghi qua phiếu nhập hàng nào (Module 20) — chỉ RestockDialog/"Nhập kho nhanh" thì không tính giá vốn, xem schema.sql. */}
+                  {ingredient.avg_cost > 0 ? formatCurrency(ingredient.avg_cost) : "Chưa có"}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-1.5">

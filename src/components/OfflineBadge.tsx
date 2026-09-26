@@ -13,9 +13,14 @@ const PENDING_COUNT_POLL_MS = 5_000;
  * ghi chú JSDoc ở đó về lý do đặt tại đây thay vì AdminNav).
  *
  * 3 phần độc lập:
- *   1. Chấm 🟢/🟠 theo `navigator.onLine` — cập nhật qua sự kiện
- *      `online`/`offline` của trình duyệt (tức thời, không cần polling).
- *   2. Badge "⚠️ Còn X đơn chưa đồng bộ" — chỉ hiện khi còn đơn `pending`
+ *   1. Chấm tròn CSS (xanh/cam) theo `navigator.onLine` — cập nhật qua sự
+ *      kiện `online`/`offline` của trình duyệt (tức thời, không cần polling).
+ *      CỐ Ý dùng chấm CSS (khớp đúng token màu `emerald-500`/`amber-500` mà
+ *      `Badge` variant `success`/`warning` của app đang dùng) thay vì emoji
+ *      🟢/🟠 — emoji hiển thị màu/kích cỡ khác nhau tuỳ hệ điều hành
+ *      (Windows/macOS/Android), không nhất quán bằng CSS thuần, và đồng bộ
+ *      hơn với phong cách chung của app (không nơi nào khác dùng emoji).
+ *   2. Badge "Còn X đơn chưa đồng bộ" — chỉ hiện khi còn đơn `pending`
  *      trong IndexedDB, số liệu lấy qua polling mỗi
  *      `PENDING_COUNT_POLL_MS` (IndexedDB không có cơ chế "subscribe" native
  *      nên không thể cập nhật tức thời như (1) mà không kéo thêm thư viện
@@ -85,13 +90,14 @@ export function OfflineBadge() {
 
   return (
     <div className="flex shrink-0 items-center gap-1.5">
-      {/* Emoji 🟢/🟠 tự nó ĐÃ LÀ 1 chấm tròn màu — không vẽ thêm span chấm CSS
-          riêng nữa (bản trước vẽ thêm 1 chấm <span> cạnh emoji, gây hiện tượng
-          2 chấm xanh trùng nhau ngay trước "Trực tuyến"). */}
-      <span className="text-xs font-medium text-muted-foreground">
-        {isOnline ? "🟢 Trực tuyến" : "🟠 Ngoại tuyến (Đang lưu đệm)"}
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <span
+          className={`h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-amber-500"}`}
+          aria-hidden="true"
+        />
+        {isOnline ? "Trực tuyến" : "Ngoại tuyến (Đang lưu đệm)"}
       </span>
-      {pendingCount > 0 && <Badge variant="warning">⚠️ Còn {pendingCount} đơn chưa đồng bộ</Badge>}
+      {pendingCount > 0 && <Badge variant="warning">Còn {pendingCount} đơn chưa đồng bộ</Badge>}
     </div>
   );
 }

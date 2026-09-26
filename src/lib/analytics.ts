@@ -62,6 +62,21 @@ export function resolveAnalyticsRange(
   return { from, to: to < from ? from : to };
 }
 
+/**
+ * "yyyy-MM-dd" theo giờ ĐỊA PHƯƠNG TRÌNH DUYỆT — khác `shopDateString` ở dưới
+ * (cố định múi giờ Asia/Ho_Chi_Minh, chỉ dùng cho Route Handler chạy trên
+ * server). Dùng để gộp báo cáo kế toán (Module 21,
+ * `analytics.service.ts#getAccountingReport`) theo đúng ngày dương lịch mà
+ * chủ quán đang xem trên trình duyệt của họ, khớp quy ước "quán chỉ vận hành
+ * 1 múi giờ duy nhất" đã dùng cho `resolveAnalyticsRange` ở trên.
+ */
+export function formatDateOnlyLocal(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export interface WeekComparisonRanges {
   currentWeek: AnalyticsDateRange;
   previousWeek: AnalyticsDateRange;

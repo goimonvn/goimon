@@ -737,6 +737,76 @@ export interface AnalyticsReport {
   topItems: BestSellerRow[];
 }
 
+// ---------------------------------------------------------------------------
+// Module 21 — Xuất báo cáo kế toán định kỳ (Excel/PDF) & So sánh hiệu suất
+// nhân viên
+// ---------------------------------------------------------------------------
+
+/** 1 dòng doanh thu/số đơn theo NGÀY DƯƠNG LỊCH cụ thể (khác `weekdayTrend` ở trên vốn gộp theo THỨ TRONG TUẦN) — dùng cho báo cáo kế toán Excel/PDF. */
+export interface AccountingDailyRow {
+  /** "yyyy-MM-dd", xem `lib/analytics.ts#formatDateOnlyLocal`. */
+  date: string;
+  revenue: number;
+  ordersCount: number;
+  paidOrdersCount: number;
+}
+
+/** Doanh thu (đã thanh toán) gộp theo phương thức — giúp kế toán đối chiếu quỹ tiền mặt/sao kê ngân hàng. */
+export interface AccountingPaymentBreakdown {
+  cash: number;
+  vietqr: number;
+  cod: number;
+}
+
+export interface AccountingExpenseCategoryRow {
+  category: ExpenseCategory;
+  amount: number;
+}
+
+export interface AccountingVatInvoiceRow {
+  /** "yyyy-MM-dd" — ngày tạo hoá đơn. */
+  date: string;
+  companyName: string;
+  taxCode: string;
+  totalAmount: number;
+}
+
+/** Toàn bộ dữ liệu báo cáo kế toán cho `/admin/analytics` — nguồn cho cả 2 nút "Xuất Excel"/"Xuất PDF" (Module 21, xem `lib/accountingExport.ts`). */
+export interface AccountingReport {
+  range: AnalyticsDateRange;
+  daily: AccountingDailyRow[];
+  paymentBreakdown: AccountingPaymentBreakdown;
+  totals: {
+    revenueTotal: number;
+    ordersCount: number;
+    paidOrdersCount: number;
+    totalExpenses: number;
+    grossProfit: number;
+  };
+  expensesByCategory: AccountingExpenseCategoryRow[];
+  vatInvoices: AccountingVatInvoiceRow[];
+}
+
+/**
+ * 1 dòng so sánh hiệu suất của 1 nhân viên trong khoảng thời gian đã lọc —
+ * gộp từ mọi ca làm việc của nhân viên đó bắt đầu trong khoảng này (kể cả ca
+ * đang mở). CHỈ tính đơn có gắn `shift_id` (nhân viên xác nhận thanh toán tại
+ * quầy — xem `order.service.ts#markOrdersPaid`) — đơn giao hàng/PayOS tự
+ * động không gắn ca nào nên không nằm trong số liệu này, xem ghi chú đầy đủ ở
+ * `shift.service.ts#getStaffPerformance`.
+ */
+export interface StaffPerformanceRow {
+  staffId: string;
+  staffName: string;
+  shiftsCount: number;
+  totalRevenue: number;
+  totalOrders: number;
+  avgRevenuePerShift: number;
+  /** Làm tròn 1 chữ số thập phân (1 nhân viên có thể có nhiều ca lệch số đơn khá xa nhau). */
+  avgOrdersPerShift: number;
+  avgRevenuePerOrder: number;
+}
+
 export type SmartInsightTone = "up" | "down" | "neutral";
 
 /**

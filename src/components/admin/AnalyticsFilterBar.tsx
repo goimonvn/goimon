@@ -1,10 +1,9 @@
 "use client";
 
+import { DateRangeFilter } from "@/components/admin/DateRangeFilter";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { ANALYTICS_PRESET_LABEL, type AnalyticsPreset } from "@/types";
-import { Download } from "lucide-react";
+import type { AnalyticsPreset } from "@/types";
+import { Download, FileSpreadsheet, FileText } from "lucide-react";
 
 interface AnalyticsFilterBarProps {
   preset: AnalyticsPreset;
@@ -14,12 +13,22 @@ interface AnalyticsFilterBarProps {
   onCustomFromChange: (value: string) => void;
   onCustomToChange: (value: string) => void;
   onExportCsv: () => void;
+  onExportExcel: () => void;
+  onExportPdf: () => void;
   exportDisabled?: boolean;
+  /** Module 21: xuất Excel/PDF cần gọi thêm 1 lượt tải dữ liệu + (với PDF) tải font, có thể mất vài giây — hiện trạng thái riêng cho từng nút thay vì khoá cả 3. */
+  exportingExcel?: boolean;
+  exportingPdf?: boolean;
 }
 
-const PRESETS: AnalyticsPreset[] = ["today", "7d", "month", "custom"];
-
-/** Thanh lọc thời gian cho `/admin/analytics` — 3 khoảng dựng sẵn + tuỳ chỉnh ngày, cộng nút xuất CSV. */
+/**
+ * Thanh lọc thời gian cho `/admin/analytics` — bộ lọc khoảng ngày dùng chung
+ * (`DateRangeFilter`) + 3 nút xuất báo cáo: CSV thô (Module 10, dữ liệu tổng
+ * hợp/xu hướng hiển thị trên chính trang này) và Excel/PDF (Module 21, báo
+ * cáo kế toán đầy đủ hơn — doanh thu theo ngày, chi phí, phương thức thanh
+ * toán, hoá đơn VAT — tiện gửi thẳng cho kế toán quán) — cả 3 cùng tồn tại
+ * song song, không thay thế nhau.
+ */
 export function AnalyticsFilterBar({
   preset,
   onPresetChange,
@@ -28,48 +37,42 @@ export function AnalyticsFilterBar({
   onCustomFromChange,
   onCustomToChange,
   onExportCsv,
+  onExportExcel,
+  onExportPdf,
   exportDisabled,
+  exportingExcel,
+  exportingPdf,
 }: AnalyticsFilterBarProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
+      <DateRangeFilter
+        preset={preset}
+        onPresetChange={onPresetChange}
+        customFrom={customFrom}
+        customTo={customTo}
+        onCustomFromChange={onCustomFromChange}
+        onCustomToChange={onCustomToChange}
+      />
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-xl bg-muted p-1">
-          {PRESETS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => onPresetChange(value)}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                preset === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
-              )}
-            >
-              {ANALYTICS_PRESET_LABEL[value]}
-            </button>
-          ))}
-        </div>
-        {preset === "custom" && (
-          <div className="flex items-center gap-2">
-            <Input
-              type="date"
-              value={customFrom}
-              onChange={(e) => onCustomFromChange(e.target.value)}
-              className="h-9 w-40"
-            />
-            <span className="text-sm text-muted-foreground">đến</span>
-            <Input
-              type="date"
-              value={customTo}
-              onChange={(e) => onCustomToChange(e.target.value)}
-              className="h-9 w-40"
-            />
-          </div>
-        )}
+        <Button type="button" variant="outline" size="sm" onClick={onExportCsv} disabled={exportDisabled}>
+          <Download className="h-4 w-4" />
+          Xuất CSV
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onExportExcel}
+          disabled={exportDisabled || exportingExcel}
+        >
+          <FileSpreadsheet className="h-4 w-4" />
+          {exportingExcel ? "Đang xuất..." : "Xuất Excel"}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onExportPdf} disabled={exportDisabled || exportingPdf}>
+          <FileText className="h-4 w-4" />
+          {exportingPdf ? "Đang xuất..." : "Xuất PDF"}
+        </Button>
       </div>
-      <Button type="button" variant="outline" size="sm" onClick={onExportCsv} disabled={exportDisabled}>
-        <Download className="h-4 w-4" />
-        Xuất CSV
-      </Button>
     </div>
   );
 }

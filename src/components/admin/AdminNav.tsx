@@ -4,7 +4,7 @@ import { LogoutButton } from "@/components/shared/LogoutButton";
 import { cn } from "@/lib/utils";
 import { USER_ROLE_LABEL } from "@/types";
 import type { ProfilesRow } from "@/types/database.types";
-import { BarChart3, Boxes, Clock, Gift, LayoutDashboard, MapPin, ReceiptText, Settings2, Star, Ticket, Truck, Users, UtensilsCrossed, Wallet } from "lucide-react";
+import { Award, BarChart3, Boxes, Clock, Gift, LayoutDashboard, MapPin, ReceiptText, Settings2, Star, Ticket, Truck, Users, UtensilsCrossed, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/admin/purchases", label: "Nhập hàng", icon: Truck },
   { href: "/admin/promotions", label: "Khuyến mãi", icon: Ticket },
   { href: "/admin/shifts", label: "Ca làm việc", icon: Clock },
+  { href: "/admin/staff-performance", label: "Hiệu suất NV", icon: Award },
   { href: "/admin/expenses", label: "Chi phí", icon: Wallet },
   { href: "/admin/analytics", label: "Phân tích", icon: BarChart3 },
   { href: "/admin/vat-invoices", label: "Hoá đơn VAT", icon: ReceiptText },

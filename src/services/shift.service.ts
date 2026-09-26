@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
-import { AppError, type ShiftWithStaff } from "@/types";
+import { AppError, type AnalyticsDateRange, type ShiftWithStaff, type StaffPerformanceRow } from "@/types";
 import type { CloseShiftResultRow, ShiftsRow } from "@/types/database.types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
@@ -221,6 +221,113 @@ export async function adminUpdateShiftCash(
   if (error) {
     throw new AppError("Không thể cập nhật ca làm việc.", error);
   }
+}
+
+type ShiftForPerformance = {
+  id: string;
+  staff_id: string;
+  staff: { full_name: string | null; email: string } | null;
+};
+
+type OrderForPerformance = { shift_id: string | null; total_amount: number };
+
+/**
+ * So sánh hiệu suất nhân viên theo ca làm việc (Module 21, `/admin/staff-performance`)
+ * — doanh thu/số đơn đã xác nhận thanh toán, gộp theo TỪNG CA rồi cộng dồn
+ * theo nhân viên, cho mọi ca có `start_time` rơi trong `range` (kể cả ca đang
+ * mở, không chỉ ca đã đóng).
+ *
+ * Tính TRỰC TIẾP từ `orders` (KHÔNG dùng `shifts.total_revenue_cash`/
+ * `total_revenue_transfer`) vì 2 cột đó CHỈ được `close_shift` ghi MỘT LẦN
+ * lúc đóng ca (xem schema.sql) — với ca còn đang mở, 2 cột này luôn bằng 0,
+ * sẽ khiến hiệu suất ca đang mở hiện sai thành 0. Cách tính lại trực tiếp từ
+ * dữ liệu gốc này khớp đúng khuôn mẫu đã dùng ở `getDashboardSummary`/
+ * `getAnalyticsReport` (analytics.service.ts).
+ *
+ * CHỈ tính đơn có gắn `shift_id` — tức đơn được nhân viên xác nhận thanh toán
+ * tại quầy (`order.service.ts#markOrdersPaid`). Đơn "Giao tận nơi"/thanh toán
+ * PayOS tự động (Module 15/19) không có `shift_id` (không có nhân viên nào
+ * thao tác lúc webhook xác nhận, xem ghi chú ở Module 8/15) nên KHÔNG lẫn
+ * vào số liệu so sánh nhân viên này — đúng bản chất "hiệu suất phục vụ tại
+ * quầy", không phải tổng doanh thu toàn quán (xem `/admin/analytics` cho số
+ * đó).
+ */
+export async function getStaffPerformance(range: AnalyticsDateRange): Promise<StaffPerformanceRow[]> {
+  const { data: shiftsData, error: shiftsError } = await supabase
+    .from("shifts")
+    .select("id, staff_id, staff:profiles!shifts_staff_id_fkey(full_name, email)")
+    .gte("start_time", range.from.toISOString())
+    .lte("start_time", range.to.toISOString());
+
+  if (shiftsError) {
+    throw new AppError("Không thể tải danh sách ca làm việc để so sánh hiệu suất.", shiftsError);
+  }
+
+  // Xem ghi chú ở getShiftHistory về việc ép kiểu tường minh cho trường embed.
+  const shifts = (shiftsData ?? []) as unknown as ShiftForPerformance[];
+  if (shifts.length === 0) return [];
+
+  const shiftIds = shifts.map((s) => s.id);
+  const { data: ordersData, error: ordersError } = await supabase
+    .from("orders")
+    .select("shift_id, total_amount")
+    .in("shift_id", shiftIds)
+    .eq("payment_status", "paid");
+
+  if (ordersError) {
+    throw new AppError("Không thể tải dữ liệu đơn hàng để so sánh hiệu suất.", ordersError);
+  }
+
+  // Xem ghi chú ở getShiftHistory về việc ép kiểu tường minh qua `unknown` cho
+  // dữ liệu .select() — áp dụng nhất quán ở đây dù chỉ chọn 2 cột phẳng,
+  // không embed, để không phụ thuộc vào việc Database type viết tay có suy
+  // luận đúng kiểu hẹp cho từng phiên bản `@supabase/supabase-js` hay không.
+  const orders = (ordersData ?? []) as unknown as OrderForPerformance[];
+  const revenueByShift = new Map<string, number>();
+  const ordersCountByShift = new Map<string, number>();
+  for (const order of orders) {
+    if (!order.shift_id) continue;
+    revenueByShift.set(order.shift_id, (revenueByShift.get(order.shift_id) ?? 0) + order.total_amount);
+    ordersCountByShift.set(order.shift_id, (ordersCountByShift.get(order.shift_id) ?? 0) + 1);
+  }
+
+  interface StaffAgg {
+    staffName: string;
+    shiftsCount: number;
+    totalRevenue: number;
+    totalOrders: number;
+  }
+  const byStaff = new Map<string, StaffAgg>();
+  for (const shift of shifts) {
+    const revenue = revenueByShift.get(shift.id) ?? 0;
+    const ordersCount = ordersCountByShift.get(shift.id) ?? 0;
+    const existing = byStaff.get(shift.staff_id);
+    if (existing) {
+      existing.shiftsCount += 1;
+      existing.totalRevenue += revenue;
+      existing.totalOrders += ordersCount;
+    } else {
+      byStaff.set(shift.staff_id, {
+        staffName: shift.staff?.full_name || shift.staff?.email || "Không rõ",
+        shiftsCount: 1,
+        totalRevenue: revenue,
+        totalOrders: ordersCount,
+      });
+    }
+  }
+
+  return Array.from(byStaff.entries())
+    .map(([staffId, agg]) => ({
+      staffId,
+      staffName: agg.staffName,
+      shiftsCount: agg.shiftsCount,
+      totalRevenue: agg.totalRevenue,
+      totalOrders: agg.totalOrders,
+      avgRevenuePerShift: agg.shiftsCount > 0 ? Math.round(agg.totalRevenue / agg.shiftsCount) : 0,
+      avgOrdersPerShift: agg.shiftsCount > 0 ? Math.round((agg.totalOrders / agg.shiftsCount) * 10) / 10 : 0,
+      avgRevenuePerOrder: agg.totalOrders > 0 ? Math.round(agg.totalRevenue / agg.totalOrders) : 0,
+    }))
+    .sort((a, b) => b.totalRevenue - a.totalRevenue);
 }
 
 /** Realtime: Admin thấy ngay khi có ca mới bắt đầu/kết thúc, không cần refresh trang. */

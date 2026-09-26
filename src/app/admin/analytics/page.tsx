@@ -7,12 +7,15 @@ import { TopItemsTable } from "@/components/admin/TopItemsTable";
 import { WeekdayRevenueChart } from "@/components/admin/WeekdayRevenueChart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalyticsReport } from "@/hooks/useAnalyticsReport";
+import { exportAccountingExcel, exportAccountingPdf } from "@/lib/accountingExport";
 import { resolveAnalyticsRange } from "@/lib/analytics";
 import { buildCsv, downloadCsv } from "@/lib/csv";
 import { formatCurrency } from "@/lib/utils";
+import { getAccountingReport } from "@/services/analytics.service";
 import type { AnalyticsPreset } from "@/types";
 import { ClipboardList, Repeat, TrendingUp, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -36,6 +39,39 @@ export default function AdminAnalyticsPage() {
   );
 
   const { report, loading } = useAnalyticsReport(range);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  /**
+   * Xuất Excel/PDF (Module 21) — tải riêng `getAccountingReport` (dữ liệu
+   * khác `report` đang hiển thị trên trang: doanh thu theo TỪNG NGÀY, chi
+   * phí, phương thức thanh toán, hoá đơn VAT) NGAY LÚC bấm nút thay vì tải
+   * sẵn liên tục như `report` — dữ liệu này chỉ dùng để xuất file, không hiển
+   * thị trực tiếp trên trang nên không cần load-eager theo mọi lần đổi bộ lọc.
+   */
+  async function handleExportExcel() {
+    setExportingExcel(true);
+    try {
+      const accountingReport = await getAccountingReport(range);
+      await exportAccountingExcel(accountingReport, `bao-cao-ke-toan-goimon-${todayIsoDate()}.xlsx`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể xuất báo cáo Excel.");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
+  async function handleExportPdf() {
+    setExportingPdf(true);
+    try {
+      const accountingReport = await getAccountingReport(range);
+      await exportAccountingPdf(accountingReport, `bao-cao-ke-toan-goimon-${todayIsoDate()}.pdf`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể xuất báo cáo PDF.");
+    } finally {
+      setExportingPdf(false);
+    }
+  }
 
   function handleExportCsv() {
     if (!report) return;
@@ -79,7 +115,11 @@ export default function AdminAnalyticsPage() {
         onCustomFromChange={setCustomFrom}
         onCustomToChange={setCustomTo}
         onExportCsv={handleExportCsv}
+        onExportExcel={handleExportExcel}
+        onExportPdf={handleExportPdf}
         exportDisabled={!report || loading}
+        exportingExcel={exportingExcel}
+        exportingPdf={exportingPdf}
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

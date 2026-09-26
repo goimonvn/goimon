@@ -2,16 +2,22 @@ import { supabase } from "@/lib/supabase/client";
 import {
   computePercentChange,
   findPeakTwoHourWindow,
+  formatDateOnlyLocal,
   formatHour,
   getWeekComparisonRanges,
   mondayFirstWeekdayIndex,
   shopDateString,
   SHOP_HOUR_RANGE,
 } from "@/lib/analytics";
-import { getTotalExpenses } from "./expense.service";
+import { getExpenses, getTotalExpenses } from "./expense.service";
+import { getAllVatInvoices } from "./vatInvoice.service";
 import {
   AppError,
   WEEKDAY_LABELS,
+  type AccountingDailyRow,
+  type AccountingExpenseCategoryRow,
+  type AccountingPaymentBreakdown,
+  type AccountingReport,
   type AdvancedMetrics,
   type AnalyticsDateRange,
   type AnalyticsReport,
@@ -23,7 +29,7 @@ import {
   type SmartInsight,
   type WeekdayRevenuePoint,
 } from "@/types";
-import type { TablesRow, TableStatus } from "@/types/database.types";
+import type { ExpenseCategory, PaymentMethod, TablesRow, TableStatus } from "@/types/database.types";
 
 const EMPTY_TABLE_STATUS_COUNTS: Record<TableStatus, number> = {
   available: 0,
@@ -395,6 +401,129 @@ export async function getAnalyticsReport(range: AnalyticsDateRange): Promise<Ana
     weekdayTrend: buildWeekdayTrend(ordersInRange),
     heatmap: buildHeatmap(ordersInRange),
     topItems,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Module 21 — Xuất báo cáo kế toán định kỳ (Excel/PDF) & So sánh hiệu suất
+// nhân viên
+// ---------------------------------------------------------------------------
+
+type AccountingOrderRow = {
+  total_amount: number;
+  payment_status: string;
+  payment_method: PaymentMethod | null;
+  created_at: string;
+};
+
+async function fetchOrdersForAccounting(range: AnalyticsDateRange): Promise<AccountingOrderRow[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("total_amount, payment_status, payment_method, created_at")
+    .gte("created_at", range.from.toISOString())
+    .lte("created_at", range.to.toISOString());
+
+  if (error) {
+    throw new AppError("Không thể tải dữ liệu đơn hàng để xuất báo cáo kế toán.", error);
+  }
+  return data ?? [];
+}
+
+/** Gộp doanh thu/số đơn theo TỪNG NGÀY DƯƠNG LỊCH trong `range` (đủ mọi ngày kể cả ngày không phát sinh đơn nào, để bảng/biểu đồ không bị thiếu dòng). */
+function buildAccountingDaily(range: AnalyticsDateRange, orders: AccountingOrderRow[]): AccountingDailyRow[] {
+  const buckets = new Map<string, AccountingDailyRow>();
+  const cursor = new Date(range.from);
+  cursor.setHours(0, 0, 0, 0);
+  const end = new Date(range.to);
+  end.setHours(0, 0, 0, 0);
+  while (cursor.getTime() <= end.getTime()) {
+    const key = formatDateOnlyLocal(cursor);
+    buckets.set(key, { date: key, revenue: 0, ordersCount: 0, paidOrdersCount: 0 });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  for (const order of orders) {
+    const key = formatDateOnlyLocal(new Date(order.created_at));
+    const bucket = buckets.get(key);
+    if (!bucket) continue; // Lệch bucket ở đúng biên khoảng lọc (giờ địa phương) — bỏ qua an toàn, không làm sai tổng vì tổng được tính riêng từ `orders` gốc.
+    bucket.ordersCount += 1;
+    if (order.payment_status === "paid") {
+      bucket.paidOrdersCount += 1;
+      bucket.revenue += order.total_amount;
+    }
+  }
+
+  return Array.from(buckets.values());
+}
+
+/** Doanh thu (đã thanh toán) gộp theo phương thức — giúp kế toán đối chiếu quỹ tiền mặt/sao kê ngân hàng riêng biệt. */
+function buildAccountingPaymentBreakdown(orders: AccountingOrderRow[]): AccountingPaymentBreakdown {
+  const result: AccountingPaymentBreakdown = { cash: 0, vietqr: 0, cod: 0 };
+  for (const order of orders) {
+    if (order.payment_status !== "paid" || !order.payment_method) continue;
+    result[order.payment_method] += order.total_amount;
+  }
+  return result;
+}
+
+const ACCOUNTING_EXPENSE_CATEGORY_ORDER: ExpenseCategory[] = ["ingredient", "utility", "salary", "other"];
+
+/**
+ * Báo cáo kế toán định kỳ cho `/admin/analytics` (Module 21) — nguồn duy nhất
+ * cho cả 2 nút "Xuất Excel"/"Xuất PDF" (xem `lib/accountingExport.ts`), thay
+ * cho việc xuất thẳng CSV thô như nút "Xuất CSV" cũ (Module 10, vẫn giữ
+ * nguyên song song). Gộp Ở TẦNG CLIENT từ dữ liệu đã có (`orders`,
+ * `expenses`, `vat_invoices`) — không thêm bảng/RPC nào mới, đúng khuôn mẫu
+ * đã dùng cho `getAnalyticsReport` ở trên.
+ */
+export async function getAccountingReport(range: AnalyticsDateRange): Promise<AccountingReport> {
+  const fromDateStr = formatDateOnlyLocal(range.from);
+  const toDateStr = formatDateOnlyLocal(range.to);
+
+  const [orders, expenses, allVatInvoices] = await Promise.all([
+    fetchOrdersForAccounting(range),
+    getExpenses({ category: "all", fromDate: fromDateStr, toDate: toDateStr }),
+    getAllVatInvoices(),
+  ]);
+
+  const paidOrders = orders.filter((o) => o.payment_status === "paid");
+  const revenueTotal = paidOrders.reduce((sum, o) => sum + o.total_amount, 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+
+  const expensesByCategory: AccountingExpenseCategoryRow[] = ACCOUNTING_EXPENSE_CATEGORY_ORDER.map((category) => ({
+    category,
+    amount: expenses.filter((e) => e.category === category).reduce((sum, e) => sum + e.amount, 0),
+  }));
+
+  // vat_invoices không lọc được theo khoảng ngày ở tầng service (getAllVatInvoices
+  // luôn trả toàn bộ lịch sử, dùng chung cho `/admin/vat-invoices`) — lọc lại ở
+  // đây theo `created_at`, chấp nhận được ở quy mô 1 quán 15 bàn (giống cách
+  // `computeRetention` ở trên quét toàn bộ lịch sử `orders` không phân trang).
+  const vatInvoices = allVatInvoices
+    .filter((invoice) => {
+      const t = new Date(invoice.created_at).getTime();
+      return t >= range.from.getTime() && t <= range.to.getTime();
+    })
+    .map((invoice) => ({
+      date: formatDateOnlyLocal(new Date(invoice.created_at)),
+      companyName: invoice.company_name,
+      taxCode: invoice.tax_code,
+      totalAmount: invoice.order?.total_amount ?? 0,
+    }));
+
+  return {
+    range,
+    daily: buildAccountingDaily(range, orders),
+    paymentBreakdown: buildAccountingPaymentBreakdown(orders),
+    totals: {
+      revenueTotal,
+      ordersCount: orders.length,
+      paidOrdersCount: paidOrders.length,
+      totalExpenses,
+      grossProfit: revenueTotal - totalExpenses,
+    },
+    expensesByCategory,
+    vatInvoices,
   };
 }
 

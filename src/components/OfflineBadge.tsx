@@ -85,11 +85,10 @@ export function OfflineBadge() {
 
   return (
     <div className="flex shrink-0 items-center gap-1.5">
-      <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-        <span
-          className={`h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-amber-500"}`}
-          aria-hidden="true"
-        />
+      {/* Emoji 🟢/🟠 tự nó ĐÃ LÀ 1 chấm tròn màu — không vẽ thêm span chấm CSS
+          riêng nữa (bản trước vẽ thêm 1 chấm <span> cạnh emoji, gây hiện tượng
+          2 chấm xanh trùng nhau ngay trước "Trực tuyến"). */}
+      <span className="text-xs font-medium text-muted-foreground">
         {isOnline ? "🟢 Trực tuyến" : "🟠 Ngoại tuyến (Đang lưu đệm)"}
       </span>
       {pendingCount > 0 && <Badge variant="warning">⚠️ Còn {pendingCount} đơn chưa đồng bộ</Badge>}

@@ -2122,3 +2122,138 @@ drop policy if exists "Admin insert purchase_receipt_items" on purchase_receipt_
 create policy "Admin insert purchase_receipt_items" on purchase_receipt_items for insert
   to authenticated
   with check (public.current_user_role() = 'admin');
+
+-- ============================================================================
+-- Module 21 — Offline-First (Giai đoạn 1): đồng bộ đơn tạo khi mất mạng
+--
+-- Bối cảnh: nhân viên có thể đang tạo đơn tại bàn đúng lúc mất mạng (wifi
+-- quán chập chờn). Client (xem lib/db.ts, hooks/useOfflineOrder.ts) lưu đơn
+-- vào IndexedDB với 1 `temp_id` (UUID) tự sinh NGAY lúc bấm gửi, rồi gọi lại
+-- RPC `sync_offline_order` bên dưới khi có mạng trở lại (SyncManager.tsx).
+--
+-- `temp_id`: Idempotency Key — cột UNIQUE + `on conflict (temp_id) do
+-- nothing` đảm bảo nếu request đồng bộ bị gửi LẶP LẠI (mất mạng giữa chừng
+-- lúc đang chờ phản hồi, SyncManager quét lại đúng lúc request trước vẫn
+-- đang bay...), Postgres tự bỏ qua, KHÔNG tạo trùng đơn.
+--
+-- Zero Trust: client CHỈ gửi lên `menu_item_id` + `quantity` (+ `note`) cho
+-- mỗi món trong `p_items` (jsonb) — hàm này tự JOIN với `menu_items` để lấy
+-- ĐÚNG `price`/`station_type` thật từ DB tại thời điểm đồng bộ và tự tính lại
+-- `total_amount`, không tin bất kỳ giá/tổng tiền nào client tự tính lúc
+-- offline (khác hẳn khuyến mãi ở order.service.ts vốn tính subtotal ở
+-- client — ở đây bắt buộc tính lại 100% ở server vì đơn có thể đồng bộ
+-- CHẬM, sau khi giá menu đã đổi).
+--
+-- Giai đoạn 1 CHỈ hỗ trợ đơn tại bàn do nhân viên tạo hộ (order_type =
+-- 'dine_in', bắt buộc có p_table_id) — chưa hỗ trợ áp khuyến mãi/khách hàng
+-- thân thiết cho luồng offline (ngoài phạm vi giai đoạn này, xem thêm ghi
+-- chú JSDoc ở useOfflineOrder.ts).
+-- ----------------------------------------------------------------------------
+alter table orders add column if not exists temp_id uuid unique;
+
+create or replace function public.sync_offline_order(
+  p_temp_id uuid,
+  p_table_id uuid,
+  p_items jsonb,
+  p_staff_id uuid
+)
+returns table (
+  order_id uuid,
+  total_amount numeric,
+  was_duplicate boolean
+)
+language plpgsql
+as $$
+declare
+  v_order_id uuid;
+  v_shift_id uuid;
+  v_total numeric(12, 0);
+begin
+  if p_temp_id is null then
+    raise exception 'p_temp_id không được để trống';
+  end if;
+  if p_table_id is null then
+    raise exception 'p_table_id không được để trống (Giai đoạn 1 chỉ hỗ trợ đơn tại bàn)';
+  end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'Đơn hàng cần có ít nhất 1 món';
+  end if;
+
+  -- Đơn đã tồn tại (request đồng bộ bị gửi lặp) -> trả về NGUYÊN đơn cũ,
+  -- KHÔNG insert lại order_items — đây chính là điểm mấu chốt chống trùng.
+  select o.id, o.total_amount into v_order_id, v_total
+  from public.orders o
+  where o.temp_id = p_temp_id;
+
+  if v_order_id is not null then
+    return query select v_order_id, v_total, true;
+    return;
+  end if;
+
+  -- Ca làm việc đang mở của nhân viên (nếu có) — cùng quy ước với Module 8
+  -- (shift.service.ts#getActiveShiftForCurrentStaff): null nếu nhân viên
+  -- chưa "Bắt đầu ca", đơn vẫn được tạo bình thường, chỉ không gắn ca nào.
+  select s.id into v_shift_id
+  from public.shifts s
+  where s.staff_id = p_staff_id and s.status = 'active'
+  limit 1;
+
+  -- Tính lại total_amount THẬT từ giá hiện tại trong menu_items — xem ghi
+  -- chú "Zero Trust" ở đầu Module 21.
+  --
+  -- GIỚI HẠN ĐÃ BIẾT (chấp nhận được ở Giai đoạn 1): nếu 1 `menu_item_id`
+  -- trong `p_items` KHÔNG còn tồn tại (vd món bị admin xoá đúng lúc đơn đang
+  -- offline chờ đồng bộ), câu `join` này lặng lẽ BỎ QUA món đó khỏi
+  -- total_amount — và bước insert order_items bên dưới (join giống hệt) cũng
+  -- lặng lẽ bỏ qua món đó, KHÔNG raise lỗi. Kết quả cuối vẫn NHẤT QUÁN (tổng
+  -- tiền luôn khớp đúng những món thực sự được insert), nhưng nhân viên sẽ
+  -- không được báo "món X đã bị bỏ khỏi đơn vì không còn tồn tại" — chấp
+  -- nhận đánh đổi này ở Giai đoạn 1 vì trường hợp xoá món đúng lúc có đơn
+  -- offline treo là RẤT hiếm; nếu cần cảnh báo tường minh, Giai đoạn 2 có thể
+  -- so sánh số món gửi lên với số món thực insert để trả thêm cờ báo thiếu.
+  select coalesce(sum(mi.price * (item ->> 'quantity')::int), 0)
+  into v_total
+  from jsonb_array_elements(p_items) as item
+  join public.menu_items mi on mi.id = (item ->> 'menu_item_id')::uuid;
+
+  insert into public.orders (temp_id, table_id, shift_id, order_type, status, payment_status, total_amount, created_at)
+  values (p_temp_id, p_table_id, v_shift_id, 'dine_in', 'pending', 'unpaid', v_total, now())
+  on conflict (temp_id) do nothing
+  returning id into v_order_id;
+
+  if v_order_id is null then
+    -- Trường hợp hiếm: 2 lần gọi đồng thời cùng temp_id (vd tab cũ chưa kịp
+    -- đóng đã mở tab mới, cả 2 cùng chạy SyncManager) — lần này "thua" ON
+    -- CONFLICT nên không insert được, lấy lại đúng đơn do lần gọi kia vừa tạo.
+    select o.id, o.total_amount into v_order_id, v_total
+    from public.orders o
+    where o.temp_id = p_temp_id;
+    return query select v_order_id, v_total, true;
+    return;
+  end if;
+
+  insert into public.order_items (order_id, menu_item_id, quantity, notes, station_type)
+  select
+    v_order_id,
+    (item ->> 'menu_item_id')::uuid,
+    (item ->> 'quantity')::int,
+    nullif(item ->> 'note', ''),
+    mi.station_type
+  from jsonb_array_elements(p_items) as item
+  join public.menu_items mi on mi.id = (item ->> 'menu_item_id')::uuid;
+
+  -- Bàn chuyển "đang có khách" — cùng hành vi với luồng online bình thường
+  -- (order.service.ts#createOrder) để KDS/sơ đồ bàn nhất quán dù đơn được
+  -- tạo qua luồng offline. DÙNG ĐÚNG 2 giá trị enum HIỆN TẠI của
+  -- `tables.status` ('available'/'occupied'...) — KHÔNG phải 'empty'/'ordering'
+  -- (giá trị cũ trước khi đổi tên ở phần trên của file này, Module "sơ đồ bàn
+  -- mở rộng"), nếu không câu update này sẽ không bao giờ khớp dòng nào.
+  update public.tables set status = 'occupied' where id = p_table_id and status = 'available';
+
+  return query select v_order_id, v_total, false;
+end;
+$$;
+
+grant execute on function public.sync_offline_order(uuid, uuid, jsonb, uuid) to authenticated;
+-- Không cần tạo thêm index cho temp_id: ràng buộc `unique` ở câu `alter table`
+-- phía trên đã TỰ ĐỘNG tạo 1 unique index cho cột này.

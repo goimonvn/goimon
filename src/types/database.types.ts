@@ -381,6 +381,19 @@ export interface ConfirmPayosPaymentResultRow {
 }
 
 /**
+ * Kết quả trả về của RPC `sync_offline_order` (Module 21 — Offline-First Giai
+ * đoạn 1) — `total_amount` là số THẬT do server tự tính lại từ giá menu hiện
+ * tại (xem ghi chú "Zero Trust" ở schema.sql), KHÔNG phải số client gửi lên.
+ * `was_duplicate = true` nghĩa là `temp_id` này đã tồn tại từ trước (request
+ * đồng bộ bị gửi lặp) — hàm trả về đúng đơn CŨ, không tạo thêm đơn/món nào.
+ */
+export interface SyncOfflineOrderResultRow {
+  order_id: string;
+  total_amount: number;
+  was_duplicate: boolean;
+}
+
+/**
  * Một khuyến mãi/mã giảm giá (Module 9). `code` là `null` cho khuyến mãi TỰ
  * ĐỘNG áp dụng (Happy Hour, `requires_code = false`) — xem ghi chú chi tiết
  * trong schema.sql. `daily_start_time`/`daily_end_time` (dạng "HH:MM:SS") chỉ
@@ -777,6 +790,16 @@ export interface Database {
           p_items: { ingredient_id: string; quantity: number; unit_cost: number }[];
         };
         Returns: string;
+      };
+      sync_offline_order: {
+        Args: {
+          p_temp_id: string;
+          p_table_id: string;
+          /** Mảng JSONB [{menu_item_id, quantity, note?}, ...] — CHỈ vậy, KHÔNG kèm giá (Zero Trust), xem schema.sql Module 21. */
+          p_items: { menu_item_id: string; quantity: number; note?: string }[];
+          p_staff_id: string | null;
+        };
+        Returns: SyncOfflineOrderResultRow[];
       };
     };
     Enums: Record<string, never>;

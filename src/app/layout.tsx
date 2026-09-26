@@ -1,3 +1,4 @@
+import { SyncManager } from "@/components/SyncManager";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Toaster } from "sonner";
@@ -21,6 +22,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="bg-muted/30 antialiased">
         {children}
         <Toaster richColors position="top-center" />
+        {/* Module 21 — Offline-First (Giai đoạn 1): chạy nền xuyên suốt mọi
+            trang, không hiển thị gì (xem JSDoc trong SyncManager.tsx). */}
+        <SyncManager />
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { LogoutButton } from "@/components/shared/LogoutButton";
+import { OfflineBadge } from "@/components/OfflineBadge";
 import { cn } from "@/lib/utils";
 import { USER_ROLE_LABEL } from "@/types";
 import type { ProfilesRow } from "@/types/database.types";
@@ -44,6 +45,7 @@ export function StaffNav({ profile, onLogout }: StaffNavProps) {
         );
       })}
       <div className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+        <OfflineBadge />
         <ShiftControl />
         {profile && (
           <span className="hidden text-xs text-muted-foreground sm:inline">

@@ -5,6 +5,7 @@ import { PromotionFormDialog } from "@/components/admin/PromotionFormDialog";
 import { PromotionsTable } from "@/components/admin/PromotionsTable";
 import { StatCard } from "@/components/admin/StatCard";
 import { Button } from "@/components/ui/button";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePromotions } from "@/hooks/usePromotions";
 import { deletePromotion, setPromotionActive } from "@/services/promotion.service";
 import type { PromotionsRow } from "@/types/database.types";
@@ -19,6 +20,7 @@ import { toast } from "sonner";
  * dùng chung với giỏ hàng của khách (Module 1).
  */
 export default function AdminPromotionsPage() {
+  usePageTitle("Khuyến mãi");
   const { promotions, loading, refetch } = usePromotions();
 
   const [formOpen, setFormOpen] = useState(false);

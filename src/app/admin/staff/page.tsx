@@ -6,6 +6,7 @@ import { StaffAccountsTable } from "@/components/admin/StaffAccountsTable";
 import { StatCard } from "@/components/admin/StatCard";
 import { Button } from "@/components/ui/button";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useStaffAccounts } from "@/hooks/useStaffAccounts";
 import { deleteStaffAccount, updateStaffRole } from "@/services/staff.service";
 import type { ProfilesRow, UserRole } from "@/types/database.types";
@@ -21,6 +22,7 @@ import { toast } from "sonner";
  * UPDATE bình thường qua RLS ("Admin update profiles", xem schema.sql).
  */
 export default function AdminStaffPage() {
+  usePageTitle("Tài khoản nhân viên");
   const { profile: currentProfile } = useCurrentProfile();
   const { accounts, loading, refetch } = useStaffAccounts();
 

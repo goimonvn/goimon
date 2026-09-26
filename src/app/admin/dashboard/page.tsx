@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardSummary } from "@/hooks/useDashboardSummary";
 import { useLowStockIngredients } from "@/hooks/useLowStockIngredients";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useTables } from "@/hooks/useTables";
 import { formatCurrency } from "@/lib/utils";
 import type { TableWithOrders } from "@/types";
@@ -25,6 +26,7 @@ import { useState } from "react";
  * logic quản lý bàn) + biểu đồ doanh thu + bảng món bán chạy.
  */
 export default function AdminDashboardPage() {
+  usePageTitle("Tổng quan");
   const { summary, loading: summaryLoading } = useDashboardSummary();
   const { tables, loading: tablesLoading } = useTables();
   const { lowStockIngredients } = useLowStockIngredients();

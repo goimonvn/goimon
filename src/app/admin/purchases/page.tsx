@@ -7,6 +7,7 @@ import { StatCard } from "@/components/admin/StatCard";
 import { SupplierFormDialog } from "@/components/admin/SupplierFormDialog";
 import { SuppliersTable } from "@/components/admin/SuppliersTable";
 import { Button } from "@/components/ui/button";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePurchaseReceipts } from "@/hooks/usePurchaseReceipts";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { shopDateString } from "@/lib/analytics";
@@ -24,6 +25,7 @@ import { toast } from "sonner";
  * vì chỉ "lợi nhuận gộp hôm nay" theo ngày (Module 12).
  */
 export default function AdminPurchasesPage() {
+  usePageTitle("Nhập hàng");
   const { suppliers, loading: suppliersLoading, refetch: refetchSuppliers } = useSuppliers();
   const { receipts, loading: receiptsLoading, refetch: refetchReceipts } = usePurchaseReceipts();
 

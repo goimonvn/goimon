@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { formatCurrency } from "@/lib/utils";
 import { getActiveOrdersByTable } from "@/services/order.service";
 import { getTableById } from "@/services/table.service";
@@ -142,6 +143,7 @@ function PrintReceiptContent() {
 }
 
 export default function PrintReceiptPage() {
+  usePageTitle("In hoá đơn");
   return (
     <Suspense fallback={null}>
       <PrintReceiptContent />

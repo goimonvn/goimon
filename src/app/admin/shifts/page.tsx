@@ -5,6 +5,7 @@ import { AdminEditShiftDialog } from "@/components/admin/AdminEditShiftDialog";
 import { ShiftDetailDialog } from "@/components/admin/ShiftDetailDialog";
 import { ShiftsTable } from "@/components/admin/ShiftsTable";
 import { StatCard } from "@/components/admin/StatCard";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useShiftHistory } from "@/hooks/useShiftHistory";
 import { calculateCashDiscrepancy } from "@/lib/shifts";
 import { formatCurrency } from "@/lib/utils";
@@ -13,6 +14,7 @@ import { useState } from "react";
 
 /** Trang lịch sử ca làm việc toàn quán — theo dõi giờ vào/ra và đối chiếu chênh lệch tiền mặt của từng nhân viên. */
 export default function AdminShiftsPage() {
+  usePageTitle("Ca làm việc");
   const { shifts, loading, refetch } = useShiftHistory();
   // Module 14: lưu ID thay vì cả object — luôn tra lại từ `shifts` (mảng mới
   // nhất, tự cập nhật qua realtime + refetch tay) để 3 dialog không hiện dữ

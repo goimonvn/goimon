@@ -3,6 +3,7 @@
 import { MenuAvailabilityRow } from "@/components/staff/MenuAvailabilityRow";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMenu } from "@/hooks/useMenu";
+import { usePageTitle } from "@/hooks/usePageTitle";
 
 /**
  * Bảng "Hết món nhanh": tái sử dụng nguyên useMenu() của Module 1 (đã có sẵn
@@ -10,6 +11,7 @@ import { useMenu } from "@/hooks/useMenu";
  * thấy thay đổi ngay lập tức, không cần thêm hạ tầng realtime mới.
  */
 export default function MenuControlPage() {
+  usePageTitle("Hết món nhanh");
   const { categories, loading } = useMenu();
 
   return (

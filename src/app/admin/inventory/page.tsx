@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useIngredients } from "@/hooks/useIngredients";
 import { useMenuItemMargins } from "@/hooks/useMenuItemMargins";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { deleteIngredient } from "@/services/inventory.service";
 import type { IngredientsRow } from "@/types/database.types";
@@ -32,6 +33,7 @@ import { toast } from "sonner";
  * theo món (Module 20), vào trang `/admin/purchases`.
  */
 export default function AdminInventoryPage() {
+  usePageTitle("Quản lý kho");
   const { ingredients, loading, refetch } = useIngredients();
   const { settings, loading: settingsLoading, updating, toggleBlockWhenInsufficientStock } = useShopSettings();
   const { margins, loading: marginsLoading, refetch: refetchMargins } = useMenuItemMargins();

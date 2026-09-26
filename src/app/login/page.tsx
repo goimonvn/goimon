@@ -1,6 +1,7 @@
 "use client";
 
 import { LoginForm } from "@/components/auth/LoginForm";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { Suspense } from "react";
 
 /**
@@ -9,6 +10,7 @@ import { Suspense } from "react";
  * của Next.js App Router khi render tĩnh.
  */
 export default function LoginPage() {
+  usePageTitle("Đăng nhập");
   return (
     <Suspense fallback={null}>
       <LoginForm />

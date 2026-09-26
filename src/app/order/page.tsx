@@ -13,6 +13,7 @@ import { useCart } from "@/contexts/CartContext";
 import { useTable } from "@/contexts/TableContext";
 import { useCombos } from "@/hooks/useCombos";
 import { useMenu } from "@/hooks/useMenu";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import type { ComboWithItems, MenuItemWithOptions } from "@/types";
 import { Coffee, ClipboardList } from "lucide-react";
 import Link from "next/link";
@@ -95,6 +96,7 @@ function OrderPageContent() {
 }
 
 export default function OrderPage() {
+  usePageTitle("Đặt món");
   return (
     <TableGate>
       <OrderPageContent />

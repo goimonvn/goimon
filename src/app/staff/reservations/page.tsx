@@ -20,6 +20,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useReservations } from "@/hooks/useReservations";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import {
   assignReservationTable,
   cancelReservation,
@@ -49,6 +50,7 @@ type CancelTarget = { id: string; label: string; asRejection: boolean } | null;
  * món đầu tiên như luồng vãng lai bình thường.
  */
 export default function StaffReservationsPage() {
+  usePageTitle("Quản lý đặt bàn");
   const { reservations, loading } = useReservations();
   const [tables, setTables] = useState<TablesRow[]>([]);
   const [formOpen, setFormOpen] = useState(false);

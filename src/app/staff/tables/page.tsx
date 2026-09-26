@@ -6,6 +6,7 @@ import { TableDetailSheet } from "@/components/staff/TableDetailSheet";
 import { TableListRow } from "@/components/staff/TableListRow";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useTables } from "@/hooks/useTables";
 import { useZones } from "@/hooks/useZones";
 import { updateTableStatus } from "@/services/table.service";
@@ -17,6 +18,7 @@ import { toast } from "sonner";
 const ALL_ZONES = "all" as const;
 
 export default function StaffTablesPage() {
+  usePageTitle("Quản lý bàn");
   const { tables, loading: tablesLoading } = useTables();
   const { zones, loading: zonesLoading } = useZones();
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);

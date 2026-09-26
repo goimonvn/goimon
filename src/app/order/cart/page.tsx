@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { useCart } from "@/contexts/CartContext";
 import { useCustomer } from "@/contexts/CustomerContext";
 import { useTable } from "@/contexts/TableContext";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { groupCartLines } from "@/lib/cart";
 import { formatCurrency } from "@/lib/utils";
 import { createOrder } from "@/services/order.service";
@@ -182,6 +183,7 @@ function CartPageContent() {
 }
 
 export default function CartPage() {
+  usePageTitle("Giỏ hàng của bạn");
   return (
     <TableGate>
       <CartPageContent />

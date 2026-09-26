@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { StatCard } from "@/components/admin/StatCard";
 import { Button } from "@/components/ui/button";
 import { useAdminCombos } from "@/hooks/useAdminCombos";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { deleteCombo, setComboActive } from "@/services/combo.service";
 import type { ComboWithItems } from "@/types";
 import { Gift, PackageCheck } from "lucide-react";
@@ -19,6 +20,7 @@ import { toast } from "sonner";
  * order_items dùng chung với giỏ hàng của khách (Module 1) và KDS (Module 2).
  */
 export default function AdminCombosPage() {
+  usePageTitle("Combo & Set món ưu đãi");
   const { combos, loading, refetch } = useAdminCombos();
 
   const [formOpen, setFormOpen] = useState(false);

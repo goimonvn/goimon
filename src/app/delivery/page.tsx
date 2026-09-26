@@ -11,6 +11,7 @@ import { DeliveryCartProvider, useDeliveryCart } from "@/contexts/DeliveryCartCo
 import { useCombos } from "@/hooks/useCombos";
 import { useDeliverySettings } from "@/hooks/useDeliverySettings";
 import { useMenu } from "@/hooks/useMenu";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import type { ComboWithItems, MenuItemWithOptions } from "@/types";
 import { Bike, Coffee } from "lucide-react";
 import { useState } from "react";
@@ -109,6 +110,7 @@ function DeliveryMenuPage() {
 }
 
 export default function DeliveryPage() {
+  usePageTitle("Đặt hàng giao tận nơi");
   return (
     <DeliveryCartProvider>
       <DeliveryMenuPage />

@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { DeliveryCartProvider, useDeliveryCart } from "@/contexts/DeliveryCartContext";
 import { useDeliverySettings } from "@/hooks/useDeliverySettings";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePaymentSettings } from "@/hooks/usePaymentSettings";
 import { groupCartLines } from "@/lib/cart";
 import { formatCurrency } from "@/lib/utils";
@@ -304,6 +305,7 @@ function DeliveryCartPageContent() {
 }
 
 export default function DeliveryCartPage() {
+  usePageTitle("Giỏ hàng giao tận nơi");
   return (
     <DeliveryCartProvider>
       <DeliveryCartPageContent />

@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTable } from "@/contexts/TableContext";
 import { useActiveOrders } from "@/hooks/useActiveOrders";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { formatCurrency } from "@/lib/utils";
 import { getFeedbackForOrder } from "@/services/feedback.service";
 import { getLatestCompletedOrder } from "@/services/order.service";
@@ -168,6 +169,7 @@ function StatusPageContent() {
 }
 
 export default function StatusPage() {
+  usePageTitle("Trạng thái đơn hàng");
   return (
     <TableGate>
       <StatusPageContent />

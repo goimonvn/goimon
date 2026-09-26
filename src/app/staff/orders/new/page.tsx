@@ -11,6 +11,7 @@ import { DeliveryCartProvider, useDeliveryCart } from "@/contexts/DeliveryCartCo
 import { useCombos } from "@/hooks/useCombos";
 import { useDeliverySettings } from "@/hooks/useDeliverySettings";
 import { useMenu } from "@/hooks/useMenu";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { STAFF_DELIVERY_CART_STORAGE_KEY } from "@/lib/cart";
 import type { ComboWithItems, MenuItemWithOptions } from "@/types";
 import { Bike, ChevronLeft, Coffee } from "lucide-react";
@@ -112,6 +113,7 @@ function StaffNewDeliveryOrderPage() {
 }
 
 export default function StaffNewDeliveryOrderRoute() {
+  usePageTitle("Tạo đơn giao hàng");
   return (
     <DeliveryCartProvider storageKey={STAFF_DELIVERY_CART_STORAGE_KEY}>
       <StaffNewDeliveryOrderPage />

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { parseReservationForm } from "@/lib/validation";
 import { createReservation } from "@/services/reservation.service";
 import { CalendarCheck, CalendarClock, Phone } from "lucide-react";
@@ -22,6 +23,7 @@ import { toast } from "sonner";
  * cọc — xem reservation.service.ts#createReservation).
  */
 export default function PublicReservationPage() {
+  usePageTitle("Đặt bàn trước");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [partySize, setPartySize] = useState("2");

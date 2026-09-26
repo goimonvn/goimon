@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDeliveryOrders } from "@/hooks/useDeliveryOrders";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { formatCurrency } from "@/lib/utils";
 import { updateDeliveryStatus } from "@/services/delivery.service";
 import {
@@ -48,6 +49,7 @@ function statusBadgeVariant(status: DeliveryStatus): "warning" | "secondary" | "
  * làm mới trang.
  */
 export default function StaffOrdersPage() {
+  usePageTitle("Đơn giao hàng");
   const { orders, loading } = useDeliveryOrders();
   const [busyId, setBusyId] = useState<string | null>(null);
 

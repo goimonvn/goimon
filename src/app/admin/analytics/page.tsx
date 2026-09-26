@@ -7,6 +7,7 @@ import { TopItemsTable } from "@/components/admin/TopItemsTable";
 import { WeekdayRevenueChart } from "@/components/admin/WeekdayRevenueChart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalyticsReport } from "@/hooks/useAnalyticsReport";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { exportAccountingExcel, exportAccountingPdf } from "@/lib/accountingExport";
 import { resolveAnalyticsRange } from "@/lib/analytics";
 import { buildCsv, downloadCsv } from "@/lib/csv";
@@ -29,6 +30,7 @@ function todayIsoDate(): string {
  * top món bán chạy — kèm xuất CSV để lưu Excel.
  */
 export default function AdminAnalyticsPage() {
+  usePageTitle("Phân tích & Báo cáo");
   const [preset, setPreset] = useState<AnalyticsPreset>("7d");
   const [customFrom, setCustomFrom] = useState(todayIsoDate());
   const [customTo, setCustomTo] = useState(todayIsoDate());

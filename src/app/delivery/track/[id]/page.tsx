@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { formatCurrency } from "@/lib/utils";
 import {
   getDeliveryTrackingInfo,
@@ -31,6 +32,7 @@ import { toast } from "sonner";
  * vài chục phút), càng cần đường polling để không bị "kẹt" trạng thái cũ.
  */
 export default function DeliveryTrackPage() {
+  usePageTitle("Theo dõi đơn giao hàng");
   const params = useParams<{ id: string }>();
   const orderId = params.id;
 

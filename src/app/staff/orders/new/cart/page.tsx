@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { DeliveryCartProvider, useDeliveryCart } from "@/contexts/DeliveryCartContext";
 import { useDeliverySettings } from "@/hooks/useDeliverySettings";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { groupCartLines, STAFF_DELIVERY_CART_STORAGE_KEY } from "@/lib/cart";
 import { formatCurrency } from "@/lib/utils";
 import { parseDeliveryForm } from "@/lib/validation";
@@ -228,6 +229,7 @@ function StaffNewDeliveryCartPageContent() {
 }
 
 export default function StaffNewDeliveryCartRoute() {
+  usePageTitle("Giỏ hàng đơn giao hàng");
   return (
     <DeliveryCartProvider storageKey={STAFF_DELIVERY_CART_STORAGE_KEY}>
       <StaffNewDeliveryCartPageContent />

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useZones } from "@/hooks/useZones";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { assignTableZone, getAllTables, updateTableShape } from "@/services/table.service";
 import { deleteZone, getZonesWithTables } from "@/services/zone.service";
 import { TABLE_SHAPE_LABEL, type ZoneWithTables } from "@/types";
@@ -34,6 +35,7 @@ const NO_ZONE = "none" as const;
  * "Sơ đồ Bàn theo Khu vực" sẽ không có cách nào thực sự sử dụng được.
  */
 export default function AdminZonesPage() {
+  usePageTitle("Khu vực");
   const { zones, loading: zonesLoading } = useZones();
   const [tables, setTables] = useState<TablesRow[]>([]);
   const [zonesWithTables, setZonesWithTables] = useState<ZoneWithTables[]>([]);

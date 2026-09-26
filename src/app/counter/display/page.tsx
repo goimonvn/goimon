@@ -6,6 +6,7 @@ import { CounterReviewScreen } from "@/components/counter/CounterReviewScreen";
 import { CounterSuccessScreen } from "@/components/counter/CounterSuccessScreen";
 import { useActiveOrders } from "@/hooks/useActiveOrders";
 import { useCounterDisplay } from "@/hooks/useCounterDisplay";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useEffect } from "react";
 
 /**
@@ -21,6 +22,7 @@ import { useEffect } from "react";
  * thu ngân ở `/staff/tables` (xem hooks/useCounterDisplay.ts).
  */
 export default function CounterDisplayPage() {
+  usePageTitle("Màn hình quầy");
   const { screen, tableId, tableNumber, paymentInfo, successInfo } = useCounterDisplay();
 
   // Chỉ tải/lắng nghe đơn của bàn khi thật sự cần hiển thị nội dung món

@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePaymentSettings } from "@/hooks/usePaymentSettings";
 import { useDeliverySettings } from "@/hooks/useDeliverySettings";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import type { PaymentConfigValue } from "@/types/database.types";
 import { Banknote, Bike, QrCode, Wallet, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -159,6 +160,7 @@ function DeliverySettingsSection() {
 }
 
 export default function AdminSettingsPage() {
+  usePageTitle("Cấu hình thanh toán");
   const { settings, loading, updating, updateSetting } = usePaymentSettings();
 
   return (

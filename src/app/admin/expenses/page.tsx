@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { StatCard } from "@/components/admin/StatCard";
 import { useExpenses } from "@/hooks/useExpenses";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { shopDateString } from "@/lib/analytics";
 import { formatCurrency } from "@/lib/utils";
 import { deleteExpense, getTotalExpenses, subscribeToExpenseChanges } from "@/services/expense.service";
@@ -60,6 +61,7 @@ function useMonthlyExpenseTotal(): number | null {
 const CATEGORY_FILTER_OPTIONS: (ExpenseCategory | "all")[] = ["all", "ingredient", "utility", "salary", "other"];
 
 export default function AdminExpensesPage() {
+  usePageTitle("Chi phí");
   const [category, setCategory] = useState<ExpenseCategory | "all">("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");

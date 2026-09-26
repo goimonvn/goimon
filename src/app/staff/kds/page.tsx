@@ -4,6 +4,7 @@ import { KdsItemCard } from "@/components/staff/KdsItemCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNow } from "@/hooks/useNow";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useStationQueue } from "@/hooks/useStationQueue";
 import { updateOrderItemStatus } from "@/services/order.service";
 import { NEXT_ORDER_ITEM_STATUS, type KdsTicket } from "@/types";
@@ -75,6 +76,7 @@ function StationBoard({ station }: { station: StationType }) {
 }
 
 export default function KdsPage() {
+  usePageTitle("Màn hình bếp / pha chế (KDS)");
   return (
     <div>
       <h1 className="mb-4 text-xl font-bold">Màn hình bếp / pha chế (KDS)</h1>

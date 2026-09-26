@@ -4,6 +4,7 @@ import { StatCard } from "@/components/admin/StatCard";
 import { VatInvoiceDetailDialog } from "@/components/admin/VatInvoiceDetailDialog";
 import { VatInvoiceTable } from "@/components/admin/VatInvoiceTable";
 import { useVatInvoices } from "@/hooks/useVatInvoices";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { estimateVatAmount, formatCurrency } from "@/lib/utils";
 import type { VatInvoiceWithOrder } from "@/types";
 import { FileText, Receipt } from "lucide-react";
@@ -11,6 +12,7 @@ import { useState } from "react";
 
 /** Trang danh sách hoá đơn VAT — xem tổng quan số hoá đơn + tổng tiền VAT (tạm tính), bấm 1 dòng để xem chi tiết công ty. */
 export default function AdminVatInvoicesPage() {
+  usePageTitle("Hoá đơn VAT");
   const { invoices, loading } = useVatInvoices();
   const [selected, setSelected] = useState<VatInvoiceWithOrder | null>(null);
 

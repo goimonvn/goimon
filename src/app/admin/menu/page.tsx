@@ -7,6 +7,7 @@ import { MenuItemFormSheet } from "@/components/admin/MenuItemFormSheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMenu } from "@/hooks/useMenu";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { deleteCategory, deleteMenuItem } from "@/services/menu.service";
 import type { MenuItemWithOptions } from "@/types";
 import type { CategoriesRow } from "@/types/database.types";
@@ -27,6 +28,7 @@ type DeleteTarget =
  * gọi refetch() sau mỗi thao tác ghi để đồng bộ lại toàn bộ cây danh mục.
  */
 export default function AdminMenuPage() {
+  usePageTitle("Quản lý menu");
   const { categories, loading, refetch } = useMenu();
   const [categoryDialog, setCategoryDialog] = useState<CategoryDialogState>(null);
   const [itemSheet, setItemSheet] = useState<ItemSheetState>(null);

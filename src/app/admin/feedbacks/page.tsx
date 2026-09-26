@@ -3,6 +3,7 @@
 import { FeedbackList } from "@/components/admin/FeedbackList";
 import { StatCard } from "@/components/admin/StatCard";
 import { useFeedbacks } from "@/hooks/useFeedbacks";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { Armchair, Coffee, Headphones } from "lucide-react";
 import { useMemo } from "react";
 
@@ -13,6 +14,7 @@ function average(values: number[]): string {
 
 /** Trang đánh giá của khách (Module 5) — chủ quán xem điểm trung bình 3 hạng mục + danh sách chi tiết, tự cập nhật realtime. */
 export default function AdminFeedbacksPage() {
+  usePageTitle("Đánh giá của khách hàng");
   const { feedbacks, loading } = useFeedbacks();
 
   const averages = useMemo(

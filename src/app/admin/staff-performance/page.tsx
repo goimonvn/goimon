@@ -5,6 +5,7 @@ import { StaffPerformanceChart } from "@/components/admin/StaffPerformanceChart"
 import { StaffPerformanceTable } from "@/components/admin/StaffPerformanceTable";
 import { StatCard } from "@/components/admin/StatCard";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useStaffPerformance } from "@/hooks/useStaffPerformance";
 import { resolveAnalyticsRange } from "@/lib/analytics";
 import { formatCurrency } from "@/lib/utils";
@@ -25,6 +26,7 @@ function todayIsoDate(): string {
  * động (dự án chưa có luồng đó).
  */
 export default function AdminStaffPerformancePage() {
+  usePageTitle("Hiệu suất nhân viên");
   const [preset, setPreset] = useState<AnalyticsPreset>("7d");
   const [customFrom, setCustomFrom] = useState(todayIsoDate());
   const [customTo, setCustomTo] = useState(todayIsoDate());
